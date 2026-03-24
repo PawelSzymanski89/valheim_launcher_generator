@@ -214,7 +214,28 @@ class BuildService {
           .writeAsString(const JsonEncoder.withIndent('  ')
               .convert(config.toFtpJson()));
 
-      // 3. Run flutter build windows from workDir (short path via junction)
+      // 3. flutter pub get in REAL path — generates ephemeral cpp_client_wrapper files
+      onLog('  📦 flutter pub get...');
+      final pubResult = await Process.run(
+        'flutter', ['pub', 'get'],
+        workingDirectory: mod.dir,
+        runInShell: true,
+      );
+      if (pubResult.exitCode != 0) {
+        onLog('  ⚠️ pub get warning: ${pubResult.stderr}'.trim());
+      }
+
+      // 4. If CMakeCache has stale junction paths → flutter clean (one-time cost)
+      final cmakeCache = File(p.join(mod.dir, 'build', 'windows', 'x64', 'CMakeCache.txt'));
+      if (await cmakeCache.exists()) {
+        final cacheContent = await cmakeCache.readAsString();
+        if (cacheContent.contains(r'C:/vlg/') || cacheContent.contains(r'C:\vlg\')) {
+          onLog('  🧹 Wykryto stale ścieżki junction — flutter clean...');
+          await Process.run('flutter', ['clean'], workingDirectory: mod.dir, runInShell: true);
+        }
+      }
+
+      // 5. Run flutter build windows from workDir (short path via junction)
       onLog('  🔨 flutter build windows...');
       final buildResult = await _runFlutterBuild(workDir, mod);
       if (!buildResult.success) {
@@ -225,7 +246,7 @@ class BuildService {
         );
       }
 
-      // 4. Copy exe to output
+      // 6. Copy exe to output
       final exePath = await _copyOutput(mod);
       return ModuleBuildResult(
         moduleName: mod.name,
@@ -248,42 +269,65 @@ class BuildService {
     // Log file always goes to real (non-junction) path
     final logFile = File(p.join(mod.dir, '..', 'build_${mod.name}.log'));
     final logSink = logFile.openWrite();
-    final allLines = <String>[];
+    final meaningfulLines = <String>[];
+    final startTime = DateTime.now();
+
+    // Lines that are noise — suppress from UI but keep in log
+    bool _isNoise(String t) =>
+        t.startsWith('CMake Warning') ||
+        t.startsWith('Policy CMP') ||
+        t.startsWith('Run "cmake') ||
+        t.startsWith('This warning is for') ||
+        t.startsWith('  Policy') ||
+        t.startsWith('  Run ') ||
+        t.startsWith('  Assuming') ||
+        t.startsWith('  POST_BUILD') ||
+        t.startsWith('  PRE_') ||
+        t.startsWith('Use -Wno-dev');
 
     try {
       final process = await Process.start(
         'flutter',
         ['build', 'windows', '--release'],
-        workingDirectory: buildDir,   // ← short path via junction
+        workingDirectory: buildDir,
         runInShell: true,
       );
 
-      void handleLine(String line) {
-        logSink.write(line);
-        allLines.add(line);
-        // Stream notable lines to UI in real time
-        final t = line.trim();
-        if (t.isNotEmpty) onLog('    $t');
+      void handleChunk(String chunk) {
+        // Log EVERYTHING to file
+        logSink.write(chunk);
+        // Split on \n and \r, skip empty and spinner-only lines
+        for (final raw in chunk.split(RegExp(r'[\r\n]+'))) {
+          final t = raw.trim();
+          if (t.isEmpty || t == r'\' || t == '|' || t == '-' || t == '/') continue;
+          meaningfulLines.add(t);
+          // Show non-noise lines in UI
+          if (!_isNoise(t)) {
+            onLog('    $t');
+          }
+        }
       }
 
       process.stdout
           .transform(const Utf8Decoder(allowMalformed: true))
-          .listen(handleLine);
+          .listen(handleChunk);
       process.stderr
           .transform(const Utf8Decoder(allowMalformed: true))
-          .listen(handleLine);
+          .listen(handleChunk);
 
       final exitCode = await process.exitCode;
+      final elapsed = DateTime.now().difference(startTime).inSeconds;
       await logSink.flush();
       await logSink.close();
 
+      onLog('    ⏱️ czas buildu: ${elapsed}s');
+
       if (exitCode != 0) {
-        // Return last 20 lines so the UI log shows the actual error
-        final tail = allLines.reversed.take(20).toList().reversed.join('\n').trim();
+        final tail = meaningfulLines.reversed.take(20).toList().reversed.join('\n').trim();
         onLog('  ⛔ Pełny log: ${logFile.path}');
         return (
           success: false,
-          error: 'flutter build zakończony kodem $exitCode\n$tail',
+          error: 'flutter build kod $exitCode (${elapsed}s)\n$tail',
         );
       }
       return (success: true, error: null);
