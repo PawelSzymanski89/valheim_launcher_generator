@@ -105,6 +105,38 @@ class BuildService {
     final results = <ModuleBuildResult>[];
     double prog = 0.0;
 
+    // ── Flutter pre-check ─────────────────────────────────────────
+    onLog('🔍 Sprawdzam Flutter SDK...');
+    final flutterCheck = await Process.run(
+      'flutter', ['--version', '--machine'],
+      runInShell: true,
+    );
+    if (flutterCheck.exitCode != 0) {
+      onLog('');
+      onLog('❌ Flutter SDK nie znaleziony w PATH!');
+      onLog('');
+      onLog('  Generator wymaga zainstalowanego Flutter SDK:');
+      onLog('  1. Pobierz: https://docs.flutter.dev/get-started/install/windows');
+      onLog('  2. Rozpakuj i dodaj flutter\\bin do zmiennej PATH');
+      onLog('  3. Uruchom: flutter doctor -v');
+      onLog('  4. Wymagane: Visual Studio 2022 z C++ desktop');
+      onLog('');
+      results.add(ModuleBuildResult(
+        moduleName: 'flutter_check',
+        success: false,
+        error: 'Flutter SDK nie znaleziony w PATH. Zainstaluj Flutter i spróbuj ponownie.',
+      ));
+      return results;
+    }
+    // Extract version from JSON output
+    try {
+      final versionInfo = jsonDecode(flutterCheck.stdout as String) as Map;
+      onLog('  ✅ Flutter ${versionInfo['frameworkVersion']} (Dart ${versionInfo['dartSdkVersion']})');
+    } catch (_) {
+      onLog('  ✅ Flutter SDK znaleziony');
+    }
+    onProgress(prog += 0.02);
+
     onLog('🔐 Generowanie zaszyfrowanego configa...');
     final encryptedJson = config.toEncryptedJson();
     final encryptedPayload = jsonEncode({'data': encryptedJson});

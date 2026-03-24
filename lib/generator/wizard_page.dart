@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'config_manager.dart';
 import 'steps/step1_branding.dart';
@@ -503,21 +505,133 @@ class _BottomBar extends StatelessWidget {
       );
 
       final results = await svc.run();
+      final allOk = results.isNotEmpty && results.every((r) => r.success);
 
-      final allOk = results.every((r) => r.success);
+      // Close build dialog first
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+
       if (allOk) {
+        final outDir = results.first.exePath != null
+            ? p.dirname(p.dirname(results.first.exePath!)) // output/{serverName}/
+            : null;
         prov.setOutput(results.first.exePath ?? cfg.serverName);
+        if (context.mounted) _showSuccessDialog(context, cfg.serverName, outDir);
       } else {
         final errors = results.where((r) => !r.success).map((r) => '${r.moduleName}: ${r.error}').join('\n');
         prov.setError(errors);
+        if (context.mounted) _showErrorDialog(context, errors);
       }
     } catch (e) {
       prov.setError('$e');
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+      if (context.mounted) _showErrorDialog(context, '$e');
     } finally {
       prov.setGenerating(false);
-      // Close dialog
-      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
     }
+  }
+
+  void _showSuccessDialog(BuildContext context, String serverName, String? outDir) {
+    final lang = context.read<LangProvider>();
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF0D0B05),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0xFFD4A017), width: 1.5),
+        ),
+        title: const Row(children: [
+          Icon(Icons.check_circle, color: Color(0xFF4CAF50), size: 24),
+          SizedBox(width: 10),
+          Text('Sukces!', style: TextStyle(color: Color(0xFFD4A017), fontFamily: 'Norse', fontSize: 22)),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Wygenerowano $serverName Launcher, Patcher i Updater.',
+              style: const TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+            if (outDir != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black38,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFF2A2010)),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.folder_open, color: Color(0xFFD4A017), size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      outDir,
+                      style: const TextStyle(color: Colors.white54, fontSize: 11, fontFamily: 'monospace'),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ]),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Zamknij', style: TextStyle(color: Colors.white54)),
+          ),
+          if (outDir != null)
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFD4A017),
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+              ),
+              icon: const Icon(Icons.folder_open, size: 18),
+              label: const Text('Otwórz folder', style: TextStyle(fontFamily: 'Norse', fontSize: 15)),
+              onPressed: () {
+                Process.run('explorer', [outDir], runInShell: true);
+                Navigator.pop(context);
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showErrorDialog(BuildContext context, String error) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF0D0B05),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0xFFB71C1C), width: 1.5),
+        ),
+        title: const Row(children: [
+          Icon(Icons.error_outline, color: Color(0xFFEF5350), size: 24),
+          SizedBox(width: 10),
+          Text('Błąd budowania', style: TextStyle(color: Color(0xFFEF5350), fontFamily: 'Norse', fontSize: 20)),
+        ]),
+        content: SizedBox(
+          width: 500,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              error,
+              style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'monospace', height: 1.5),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Zamknij', style: TextStyle(color: Colors.white54)),
+          ),
+        ],
+      ),
+    );
   }
 }
 
