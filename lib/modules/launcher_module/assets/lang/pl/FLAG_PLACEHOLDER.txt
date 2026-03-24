@@ -1,0 +1,18 @@
+# Placeholder dla flagi polskiej
+
+Ten folder powinien zawierać plik `flag.png` (zalecany rozmiar: 32x32 lub 64x64 piksele) reprezentujący flagę Polski.
+
+Możesz pobrać darmowe ikony flag z:
+- https://flagicons.lipis.dev/
+- https://www.flaticon.com/packs/countrys-flags
+- https://github.com/lipis/flag-icons
+
+Aby dodać flagę:
+1. Pobierz obraz PNG flagi Polski
+2. Zmień rozmiar na 32x32 lub 64x64 piksele
+3. Nazwij go `flag.png`
+4. Umieść w tym folderze
+5. Przeładuj launcher lub uruchom ponownie
+
+Jeśli brak pliku flag.png, język będzie nadal działał, ale bez ikony flagi w interfejsie.
+

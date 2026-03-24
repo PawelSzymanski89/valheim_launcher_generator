@@ -1,0 +1,20 @@
+# Language Flags Placeholder
+
+This folder should contain a `flag.png` file (recommended size: 32x32 or 64x64 pixels) representing the flag for this language.
+
+For English (en), you should add a flag of the United Kingdom or United States.
+
+You can find free flag icons at:
+- https://flagicons.lipis.dev/
+- https://www.flaticon.com/packs/countrys-flags
+- https://github.com/lipis/flag-icons
+
+To add the flag:
+1. Download a PNG image of the flag
+2. Resize it to 32x32 or 64x64 pixels
+3. Name it `flag.png`
+4. Place it in this folder
+5. Reload the launcher or restart
+
+If no flag.png is present, the language will still work but without a flag icon in the UI.
+

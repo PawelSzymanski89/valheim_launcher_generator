@@ -1,0 +1,661 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:path/path.dart' as p;
+
+// bezpieczny odczyt strumienia stdout/stderr (zabezpieczenie przed nie-UTF8 bajtami)
+Future<String> _readStreamAsString(Stream<List<int>> stream) async {
+  // Zbierz wszystkie bajty raz, potem spróbuj zdekodować w różnych kodowaniach.
+  final bytes = await stream.fold<List<int>>(<int>[], (prev, data) {
+    prev.addAll(data);
+    return prev;
+  });
+  if (bytes.isEmpty) return '';
+  try {
+    return utf8.decode(bytes);
+  } catch (_) {
+    try {
+      return latin1.decode(bytes);
+    } catch (_) {
+      return '<binary ${bytes.length} bytes>';
+    }
+  }
+}
+
+// helper do zapisu logow do logs/log.txt (append)
+String _logsBasePath() {
+  // Prefer build runner folders (Debug/Release) if available, then fallback to current dir
+  try {
+    final cwd = Directory.current.path;
+    // common build output paths
+    final candidates = [
+      p.join(cwd, 'build', 'windows', 'x64', 'runner', 'Debug'),
+      p.join(cwd, 'build', 'windows', 'x64', 'runner', 'Release')
+    ];
+    for (final c in candidates) {
+      try {
+        final d = Directory(c);
+        if (d.existsSync()) return c;
+      } catch (_) {}
+    }
+    // fallback: directory next to resolved executable (when running standalone)
+    try {
+      final exeDir = p.dirname(Platform.resolvedExecutable);
+      if (exeDir.isNotEmpty) return exeDir;
+    } catch (_) {}
+    return cwd;
+  } catch (_) {
+    return Directory.current.path;
+  }
+}
+
+Future<void> _log(String message) async {
+  final time = DateTime.now().toUtc().toIso8601String();
+  final line = '[$time] $message\n';
+  final bases = <String>{_logsBasePath(), Directory.current.path};
+  for (final base in bases) {
+    try {
+      final logsDir = Directory(p.join(base, 'logs'));
+      if (!await logsDir.exists()) await logsDir.create(recursive: true);
+      final logFile = File(p.join(logsDir.path, 'log.txt'));
+      await logFile.writeAsString(line, mode: FileMode.append);
+    } catch (_) {
+      // ignore per-location logging errors
+    }
+  }
+}
+
+Future<void> _writeLogHeader() async {
+  final header = '--- RUN START: ${DateTime.now().toUtc().toIso8601String()} ---\n';
+  final bases = <String>{_logsBasePath(), Directory.current.path};
+  for (final base in bases) {
+    try {
+      final logsDir = Directory(p.join(base, 'logs'));
+      if (!await logsDir.exists()) await logsDir.create(recursive: true);
+      final logFile = File(p.join(logsDir.path, 'log.txt'));
+      await logFile.writeAsString(header, mode: FileMode.append);
+    } catch (_) {}
+  }
+}
+
+Future<void> _writeFatalSync(String message) async {
+  final bases = <String>{_logsBasePath(), Directory.current.path};
+  final time = DateTime.now().toUtc().toIso8601String();
+  final line = '[$time] FATAL: $message\n';
+  for (final base in bases) {
+    try {
+      final dir = Directory(p.join(base, 'logs'));
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      final file = File(p.join(dir.path, 'log.txt'));
+      file.writeAsStringSync(line, mode: FileMode.append);
+    } catch (_) {}
+  }
+}
+
+// Synchronous header write to ensure log file exists immediately on startup
+void _writeImmediateHeaderSync() {
+  try {
+    final bases = <String>{_logsBasePath(), Directory.current.path};
+    final header = '--- RUN START: ${DateTime.now().toUtc().toIso8601String()} ---\n';
+    for (final base in bases) {
+      try {
+        final dir = Directory(p.join(base, 'logs'));
+        if (!dir.existsSync()) dir.createSync(recursive: true);
+        final file = File(p.join(dir.path, 'log.txt'));
+        file.writeAsStringSync(header, mode: FileMode.append);
+      } catch (_) {}
+    }
+  } catch (_) {}
+}
+
+void main() async {
+  // Global try/catch to ensure any startup errors are logged
+  try {
+    // write immediate header synchronously so log exists even if app exits quickly
+    _writeImmediateHeaderSync();
+    WidgetsFlutterBinding.ensureInitialized();
+    await _writeLogHeader();
+    await _log('DEBUG: main start');
+
+    // capture Flutter framework errors
+    FlutterError.onError = (FlutterErrorDetails details) {
+      // schedule async logging but also write sync fallback
+      final msg = '${details.exceptionAsString()}';
+      _log('FLUTTER ERROR: $msg');
+      _writeFatalSync('FLUTTER ERROR: $msg -- ${details.stack}');
+    };
+
+    // initialize window_manager
+    await windowManager.ensureInitialized();
+    await _log('DEBUG: window_manager initialized');
+
+    // configure window options: remove native frame (frameless), center, and show
+    WindowOptions windowOptions = const WindowOptions(
+      center: true,
+      skipTaskbar: false,
+      title: 'Schron Twarda Updater',
+      // make frameless - remove default controls
+      titleBarStyle: TitleBarStyle.hidden,
+    );
+    windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await _log('DEBUG: waitUntilReadyToShow callback');
+      // set size to half of current window size (reduce window by half)
+      Size initialSize = const Size(400, 300);
+      try {
+        await _log('DEBUG: getting current window size');
+        final currentSize = await windowManager.getSize();
+        initialSize = Size(currentSize.width / 2, currentSize.height / 2);
+        await _log('DEBUG: calculated initialSize: $initialSize');
+      } catch (_) {
+        // fallback
+        initialSize = const Size(400, 300);
+        await _log('DEBUG: using fallback initialSize: $initialSize');
+      }
+      await windowManager.setSize(initialSize);
+      await _log('DEBUG: window size set');
+      await windowManager.setMinimumSize(initialSize);
+      await windowManager.setMaximumSize(initialSize);
+      await windowManager.center();
+      await windowManager.show();
+      await windowManager.focus();
+      await _log('DEBUG: window shown and focused');
+    });
+
+    runApp(const MyApp());
+  } catch (e, st) {
+    // try to log via async logger, but also fallback sync
+    try {
+      await _writeLogHeader();
+      await _log('FATAL STARTUP ERROR: $e');
+      await _log('STACK: $st');
+    } catch (_) {
+      _writeFatalSync('FATAL STARTUP ERROR: $e -- $st');
+    }
+    // rethrow so process may terminate (optional)
+    rethrow;
+  }
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Schron Twarda Updater',
+      theme: ThemeData(
+        fontFamily: 'Norse',
+        primarySwatch: Colors.blueGrey,
+      ),
+      home: const UpdaterPage(),
+    );
+  }
+}
+
+class UpdaterPage extends StatefulWidget {
+  const UpdaterPage({super.key});
+
+  @override
+  State<UpdaterPage> createState() => _UpdaterPageState();
+}
+
+class _UpdaterPageState extends State<UpdaterPage> {
+  String _message = 'Przygotowywanie... prosze czekac';
+  double _progress = 0.0;
+  bool _working = false;
+  bool _extractionSuccess = false;
+  String? _ftpHost;
+  int _ftpPort = 21;
+  String? _ftpUser;
+  String? _ftpPass;
+
+  // paths
+  late final Directory appDir;
+  late final File localZipFile;
+
+  @override
+  void initState() {
+    super.initState();
+    appDir = Directory.current; // miejsce, w którym aplikacja jest uruchomiona
+    localZipFile = File(p.join(appDir.path, 'launcher.zip'));
+    _log('DEBUG: initState - appDir=${appDir.path}');
+    _startProcess();
+  }
+
+  Future<void> _startProcess() async {
+    setState(() {
+      _working = true;
+      _message = 'Wczytywanie ustawien serwera FTP...';
+      _progress = 0.05;
+    });
+    await _log('DEBUG: startProcess - begin');
+
+    try {
+      await _log('DEBUG: startProcess - loading ftp config');
+      // load ftp config
+      await _loadFtpConfig();
+      await _log('DEBUG: ftp config loaded: host=$_ftpHost port=$_ftpPort user=$_ftpUser');
+
+      // remove local zip if exists
+      if (await localZipFile.exists()) {
+        await _log('DEBUG: old launcher.zip exists, deleting');
+        setState(() => _message = 'Usuwanie starego pliku aktualizacji...');
+        await localZipFile.delete();
+        setState(() => _progress = 0.1);
+        await _log('DEBUG: old launcher.zip deleted');
+      }
+
+      // download via FTP
+      setState(() => _message = 'Laczenie z serwerem FTP... prosze czekac');
+      await _log('DEBUG: starting download from ftp: host=$_ftpHost port=$_ftpPort');
+      await _downloadLauncher();
+      await _log('DEBUG: download finished');
+
+      setState(() {
+        _message = 'Wypakowywanie plikow... prosze czekac';
+        _progress = 0.6;
+      });
+      await _log('DEBUG: starting extraction');
+
+      // extract and overwrite
+      await _extractZipOverwrite(localZipFile, appDir);
+      await _log('DEBUG: extraction finished');
+
+      setState(() {
+        _message = 'Uruchamianie aplikacji...';
+        _progress = 0.95;
+      });
+
+      // launch process
+      await _log('DEBUG: launching launcher exe');
+      await _launchLauncherExe();
+      await _log('DEBUG: launcher process started');
+
+      setState(() {
+        _message = 'Aktualizacja zakonczona. Zamykam aplikacje.';
+        _progress = 1.0;
+        _extractionSuccess = true;
+      });
+
+      // give user a moment and close app (dispose will clean zip)
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (mounted) {
+        // close window
+        await _log('DEBUG: exiting updater');
+        exit(0);
+      }
+    } catch (e, st) {
+      // map errors to user-friendly messages (ASCII, no polish diacritics)
+      await _log('DEBUG: startProcess caught error: $e');
+      await _log('DEBUG: stacktrace: $st');
+      String short;
+      final s = e.toString();
+      if (s.contains('550') || s.toLowerCase().contains('not found') || s.toLowerCase().contains('no such file')) {
+        short = 'Nie znaleziono plikow na serwerze.';
+      } else if (s.toLowerCase().contains('brak konfiguracji') || s.toLowerCase().contains('brak danych')) {
+        short = 'Brak danych FTP. Sprawdz plik assets/ftp.json.';
+      } else if (s.toLowerCase().contains('download') || s.toLowerCase().contains('pobier')) {
+        short = 'Nie udalo sie pobrac pliku. Sprawdz polaczenie.';
+      } else if (s.toLowerCase().contains('extract') || s.toLowerCase().contains('expand-archive') || s.toLowerCase().contains('wypakow')) {
+        short = 'Nie udalo sie wypakowac plikow. Sprawdz uprawnienia.';
+      } else if (s.toLowerCase().contains('schron_twarda_launcher.exe') || s.toLowerCase().contains('nie znaleziono')) {
+        short = 'Nie znaleziono aplikacji (launcher.exe).';
+      } else {
+        short = 'Operacja nie powiodla sie. Sprobuj ponownie.';
+      }
+      setState(() {
+        _message = short;
+        _working = false;
+      });
+    }
+  }
+
+  Future<void> _loadFtpConfig() async {
+    await _log('DEBUG: _loadFtpConfig start');
+    final raw = await rootBundle.loadString('assets/ftp.json');
+    final map = json.decode(raw) as Map<String, dynamic>;
+    _ftpHost = map['host'] as String?;
+    _ftpPort = (map['port'] as num?)?.toInt() ?? 21;
+    _ftpUser = map['username'] as String?;
+    _ftpPass = map['password'] as String?;
+    await _log('DEBUG: _loadFtpConfig done host=$_ftpHost port=$_ftpPort user=$_ftpUser');
+  }
+
+  Future<void> _downloadLauncher() async {
+    if (_ftpHost == null || _ftpUser == null || _ftpPass == null) {
+      throw 'brak konfiguracji ftp';
+    }
+
+    // Use PowerShell to download via FTP with credentials
+    // Construct an FTP URL. If port isn't 21, include it explicitly.
+    final hostPart = (_ftpPort != 21) ? '$_ftpHost:$_ftpPort' : '$_ftpHost';
+    final ftpUrl = 'ftp://$hostPart/launcher_files/launcher.zip';
+
+    setState(() => _message = 'Pobieranie pakietu aktualizacji z serwera...');
+    await _log('DEBUG: _downloadLauncher - starting PowerShell download');
+
+    // remove any existing temp file
+    final tmpPath = localZipFile.path + '.downloading';
+    final tmpFile = File(tmpPath);
+    if (await tmpFile.exists()) await tmpFile.delete();
+
+    await _log('DEBUG: tmp download path = $tmpPath');
+
+    // Build a PowerShell command string. Use escaped $ for PowerShell variables and
+    // interpolate Dart variables for credentials and paths.
+    final psCommand = "\$wc = New-Object System.Net.WebClient; "
+        "\$wc.Credentials = New-Object System.Net.NetworkCredential('${_ftpUser}', '${_ftpPass}'); "
+        "\$wc.DownloadFile('${ftpUrl}', '${tmpPath}');";
+
+    final result = await Process.run('powershell', ['-NoProfile', '-Command', psCommand]);
+    await _log('DEBUG: _downloadLauncher - process exitCode=${result.exitCode}');
+    await _log('DEBUG: _downloadLauncher stdout=${result.stdout}');
+    await _log('DEBUG: _downloadLauncher stderr=${result.stderr}');
+    if (result.exitCode != 0) {
+      try {
+        if (await tmpFile.exists()) await tmpFile.delete();
+      } catch (_) {}
+      final errMsg = (result.stderr ?? result.stdout)?.toString() ?? '';
+      // map common errors to short phrases
+      if (errMsg.contains('550') || errMsg.toLowerCase().contains('file not found')) {
+        throw 'Nie znaleziono plikow na serwerze.';
+      }
+      throw 'Nie udalo sie pobrac pliku z serwera.';
+    }
+
+    // rename tmp to final
+    await tmpFile.rename(localZipFile.path);
+    await _log('DEBUG: pobrano plik FTP do: ${localZipFile.path}');
+    setState(() => _progress = 0.4);
+  }
+
+  Future<void> _extractZipOverwrite(File zipFile, Directory targetDir) async {
+    if (!await zipFile.exists()) throw 'Pobrany plik launcher.zip nie istnieje';
+
+    setState(() => _message = 'Wypakowywanie plikow... prosze czekac');
+
+    // Try direct Expand-Archive first (fast path)
+    final zipPath = zipFile.path;
+    final dest = targetDir.path;
+
+    await _log('DEBUG: _extractZipOverwrite - trying Expand-Archive to $dest');
+
+    // Uwaga: wymuszone zamkniecie procesu launchera przed podmiana plikow, aby zawsze mozna bylo nadpisac pliki
+    try {
+      final killResult = await Process.run('taskkill', ['/F', '/IM', 'schron_twarda_launcher.exe']);
+      await _log('DEBUG: taskkill exit=${killResult.exitCode} stdout=${killResult.stdout} stderr=${killResult.stderr}');
+    } catch (e) {
+      await _log('DEBUG: taskkill failed: $e');
+    }
+
+    final psDirect = [
+      '-NoProfile',
+      '-Command',
+      'Expand-Archive -LiteralPath "${zipPath}" -DestinationPath "${dest}" -Force'
+    ];
+
+    final procDirect = await Process.start('powershell', psDirect);
+    final outStream = procDirect.stdout.asBroadcastStream();
+    final errStream = procDirect.stderr.asBroadcastStream();
+    final stdoutFuture = _readStreamAsString(outStream);
+    final stderrFuture = _readStreamAsString(errStream);
+
+    // progress animation
+    final timer = Timer.periodic(const Duration(milliseconds: 150), (_) {
+      setState(() => _progress = (_progress + 0.02) % 0.95);
+    });
+
+    final exitDirect = await procDirect.exitCode;
+    final stdoutDirect = await stdoutFuture;
+    final stderrDirect = await stderrFuture;
+    await _log('DEBUG: _extractZipOverwrite direct exit=$exitDirect');
+    await _log('DEBUG: _extractZipOverwrite direct stdout=$stdoutDirect');
+    await _log('DEBUG: _extractZipOverwrite direct stderr=$stderrDirect');
+
+    if (exitDirect == 0) {
+      // success
+      timer.cancel();
+      setState(() => _progress = 0.9);
+      return;
+    }
+
+    // If direct extraction failed (often due to locked files), fall back:
+    // 1) extract to temp folder
+    // 2) copy files one-by-one to destination, skipping files that cannot be overwritten
+    await _log('DEBUG: _extractZipOverwrite - direct failed, falling back to temp extraction');
+    final tempDir = Directory(p.join(targetDir.path, '.tmp_updater_extract_${DateTime.now().millisecondsSinceEpoch}'));
+    try {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      await tempDir.create(recursive: true);
+
+      final psTemp = [
+        '-NoProfile',
+        '-Command',
+        'Expand-Archive -LiteralPath "${zipPath}" -DestinationPath "${tempDir.path}" -Force'
+      ];
+      final procTemp = await Process.start('powershell', psTemp);
+      final outStreamTemp = procTemp.stdout.asBroadcastStream();
+      final errStreamTemp = procTemp.stderr.asBroadcastStream();
+      final outFuture = _readStreamAsString(outStreamTemp);
+      final errFuture = _readStreamAsString(errStreamTemp);
+      final exitTemp = await procTemp.exitCode;
+      final outTemp = await outFuture;
+      final errTemp = await errFuture;
+      await _log('DEBUG: _extractZipOverwrite temp extract exit=$exitTemp');
+      await _log('DEBUG: _extractZipOverwrite temp stdout=$outTemp');
+      await _log('DEBUG: _extractZipOverwrite temp stderr=$errTemp');
+
+      if (exitTemp != 0) {
+        timer.cancel();
+        throw 'Nie udalo sie wypakowac plikow.';
+      }
+
+      // Walk temp dir and copy files into target, skipping locked files
+      final skipped = <String>[];
+      await for (final entity in tempDir.list(recursive: true, followLinks: false)) {
+        if (entity is File) {
+          final rel = p.relative(entity.path, from: tempDir.path);
+          final destPath = p.join(dest, rel);
+          final destFile = File(destPath);
+          try {
+            // ensure parent exists
+            await Directory(p.dirname(destPath)).create(recursive: true);
+            // if destination exists, try to delete first
+            if (await destFile.exists()) {
+              try {
+                await destFile.delete();
+              } catch (e) {
+                // cannot delete (probably in use) -> skip this file
+                await _log('DEBUG: skip overwrite (in use?): $destPath -> $e');
+                skipped.add(destPath);
+                continue;
+              }
+            }
+            // copy from temp
+            await entity.copy(destPath);
+            await _log('DEBUG: copied $rel -> $destPath');
+          } catch (e) {
+            await _log('DEBUG: failed to copy $rel -> $destPath : $e');
+            skipped.add(destPath);
+          }
+        }
+      }
+
+      // cleanup temp
+      try {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      } catch (e) {
+        await _log('DEBUG: failed to delete temp dir ${tempDir.path}: $e');
+      }
+
+      timer.cancel();
+      // Treat as success even if some files were skipped
+      if (skipped.isNotEmpty) {
+        await _log('DEBUG: extraction completed with skipped files count=${skipped.length}');
+        // prepare skipped-files content
+        final sb = StringBuffer();
+        final bases = <String>{_logsBasePath(), Directory.current.path};
+        sb.writeln('--- ${DateTime.now().toUtc().toIso8601String()} ---');
+        sb.writeln('Skipped files count=${skipped.length}');
+        for (final s in skipped) sb.writeln(s);
+        sb.writeln();
+        for (final basePath in bases) {
+          try {
+            final logsDir2 = Directory(p.join(basePath, 'logs'));
+            if (!await logsDir2.exists()) await logsDir2.create(recursive: true);
+            final logFile = File(p.join(logsDir2.path, 'skipped_files.txt'));
+            await logFile.writeAsString(sb.toString(), mode: FileMode.append);
+          } catch (_) {}
+        }
+        await _log('DEBUG: wrote skipped files log (all bases)');
+      } else {
+        await _log('DEBUG: extraction completed without skipped files');
+      }
+      setState(() => _progress = 0.9);
+      return;
+    } catch (e) {
+      timer.cancel();
+      // rethrow as user-friendly
+      await _log('DEBUG: fallback extraction failed: $e');
+      throw 'Nie udalo sie wypakowac plikow.';
+    }
+  }
+
+  Future<void> _launchLauncherExe() async {
+    final exePath = p.join(appDir.path, 'schron_twarda_launcher.exe');
+    final exeFile = File(exePath);
+    if (!await exeFile.exists()) {
+      // maybe extracted into subfolder, try to find
+      final found = await _findFileRecursive(appDir, 'schron_twarda_launcher.exe');
+      if (found != null) {
+        final proc = await Process.start(found.path, [], mode: ProcessStartMode.detached);
+        await _log('DEBUG: launched found launcher at ${found.path}, pid=${proc.pid}');
+        return;
+      }
+      throw 'Nie znaleziono aplikacji (launcher.exe).';
+    }
+
+    final proc = await Process.start(exePath, [], mode: ProcessStartMode.detached);
+    await _log('DEBUG: launched exe at $exePath, pid=${proc.pid}');
+  }
+
+  Future<File?> _findFileRecursive(Directory dir, String name) async {
+    try {
+      await for (final entity in dir.list(recursive: true, followLinks: false)) {
+        if (entity is File && p.basename(entity.path).toLowerCase() == name.toLowerCase()) return entity;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  @override
+  void dispose() {
+    _log('DEBUG: dispose called');
+    // after launching and successful extraction, remove downloaded zip
+    if (_extractionSuccess) {
+      localZipFile.exists().then((exists) async {
+        if (exists) {
+          try {
+            await localZipFile.delete();
+            _log('DEBUG: deleted launcher.zip in dispose');
+          } catch (_) {}
+        }
+      });
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF1E1E1E),
+      body: Column(
+        children: [
+          // custom frameless title bar using window_manager for dragging
+          GestureDetector(
+            onPanStart: (details) async {
+              // start native dragging
+              try {
+                await windowManager.startDragging();
+              } catch (_) {}
+            },
+            child: Container(
+              height: 46,
+              padding: const EdgeInsets.symmetric(horizontal: 12.0),
+              color: const Color(0xFF1E1E1E),
+              child: Row(children: [
+                Image.asset('assets/images/logo.png', height: 28),
+                const SizedBox(width: 10),
+                const Expanded(child: Text('Schron Twarda Updater', style: TextStyle(color: Colors.white, fontSize: 16))),
+                InkWell(
+                  onTap: () => exit(0),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12.0),
+                    child: Icon(Icons.close, color: Colors.white),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.max,
+                  children: [
+                    // logo zostało przeniesione tylko na pasek tytułu
+                    const SizedBox(height: 8),
+                    // komunikat z możliwością przewijania jeśli jest za długi
+                    Expanded(
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 300),
+                        child: Scrollbar(
+                          key: ValueKey(_message),
+                          thumbVisibility: false,
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),
+                            child: Text(
+                              _message,
+                              style: const TextStyle(color: Colors.white, fontSize: 14),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: 300,
+                      child: LinearProgressIndicator(
+                        value: _progress <= 0 ? null : _progress,
+                        backgroundColor: Colors.white24,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.tealAccent),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _working
+                        ? const SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.tealAccent),
+                          )
+                        : ElevatedButton(
+                            onPressed: _startProcess,
+                            child: const Text('Uruchom ponownie'),
+                          )
+                  ],
+                ),
+              ),
+            ),
+          )
+        ],
+      ),
+    );
+  }
+}

@@ -8,23 +8,10 @@ import 'steps/step2_server.dart';
 import 'steps/step3_ftp.dart';
 import 'steps/step4_salt.dart';
 import '../utils/shared_salt.dart';
+import '../utils/lang_provider.dart';
 
 class WizardPage extends StatelessWidget {
   const WizardPage({super.key});
-
-  static const _stepTitles = [
-    'BRANDING',
-    'SERWER',
-    'FTP / SFTP',
-    'BEZPIECZEŃSTWO',
-  ];
-
-  static const _stepSubtitles = [
-    'Nazwa i wygląd launchera',
-    'Dane serwera Valheim',
-    'Dane do serwera plików',
-    'Szyfrowanie konfiguracji',
-  ];
 
   static const _stepIcons = [
     Icons.palette_outlined,
@@ -36,11 +23,25 @@ class WizardPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<GeneratorProvider>();
+    final lang = context.watch<LangProvider>();
     final step = prov.currentStep;
+
+    final stepTitles = [
+      lang.t('step1_title'),
+      lang.t('step2_title'),
+      lang.t('step3_title'),
+      lang.t('step4_title'),
+    ];
+    final stepSubs = [
+      lang.t('step1_sub'),
+      lang.t('step2_sub'),
+      lang.t('step3_sub'),
+      lang.t('step4_sub'),
+    ];
 
     return Scaffold(
       body: Stack(children: [
-        // ── Background texture ──────────────────────────────────────
+        // ── Background gradient ──────────────────────────────────────
         Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -50,25 +51,21 @@ class WizardPage extends StatelessWidget {
             ),
           ),
         ),
-        // Dekoracyjna siatka
         CustomPaint(painter: _GridPainter(), size: Size.infinite),
 
         // ── Main layout ──────────────────────────────────────────────
         Row(children: [
-          // Left sidebar
-          _Sidebar(step: step, stepTitles: _stepTitles, stepIcons: _stepIcons),
-
-          // Content
+          _Sidebar(step: step, stepTitles: stepTitles, stepIcons: _stepIcons, lang: lang),
           Expanded(
             child: Column(children: [
-              _TopBar(step: step, subtitle: _stepSubtitles[step]),
+              _TopBar(step: step, subtitle: stepSubs[step], lang: lang),
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(40),
                   child: _buildStepContent(step),
                 ),
               ),
-              _BottomBar(step: step, prov: prov),
+              _BottomBar(step: step, prov: prov, lang: lang),
             ]),
           ),
         ]),
@@ -89,10 +86,11 @@ class WizardPage extends StatelessWidget {
 
 // ── Sidebar ──────────────────────────────────────────────────────
 class _Sidebar extends StatelessWidget {
-  const _Sidebar({required this.step, required this.stepTitles, required this.stepIcons});
+  const _Sidebar({required this.step, required this.stepTitles, required this.stepIcons, required this.lang});
   final int step;
   final List<String> stepTitles;
   final List<IconData> stepIcons;
+  final LangProvider lang;
 
   @override
   Widget build(BuildContext context) {
@@ -111,22 +109,17 @@ class _Sidebar extends StatelessWidget {
         children: [
           // Logo
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 32, 24, 40),
+            padding: const EdgeInsets.fromLTRB(24, 32, 24, 36),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const Text('VALHEIM',
                   style: TextStyle(
-                    fontFamily: 'Norse',
-                    fontSize: 26,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFFD4A017),
-                    letterSpacing: 3,
+                    fontFamily: 'Norse', fontSize: 26, fontWeight: FontWeight.w700,
+                    color: Color(0xFFD4A017), letterSpacing: 3,
                   )),
               const Text('LAUNCHER GENERATOR',
                   style: TextStyle(
-                    fontFamily: 'Norse',
-                    fontSize: 11,
-                    color: Color(0xFF8B6914),
-                    letterSpacing: 2,
+                    fontFamily: 'Norse', fontSize: 11,
+                    color: Color(0xFF8B6914), letterSpacing: 2,
                   )),
               const SizedBox(height: 6),
               Container(height: 1, width: 60, color: const Color(0xFF8B6914)),
@@ -135,16 +128,20 @@ class _Sidebar extends StatelessWidget {
 
           // Steps
           ...List.generate(4, (i) => _StepItem(
-            index: i,
-            label: stepTitles[i],
-            icon: stepIcons[i],
-            current: step,
+            index: i, label: stepTitles[i], icon: stepIcons[i], current: step,
           )),
 
           const Spacer(),
+
+          // Lang toggle
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: _LangToggle(lang: lang),
+          ),
+
           // Version
           const Padding(
-            padding: EdgeInsets.all(24),
+            padding: EdgeInsets.fromLTRB(24, 4, 24, 24),
             child: Text('v1.0.0',
                 style: TextStyle(color: Colors.white24, fontSize: 11, fontFamily: 'Norse')),
           ),
@@ -154,6 +151,54 @@ class _Sidebar extends StatelessWidget {
   }
 }
 
+// ── Language Toggle ──────────────────────────────────────────────
+class _LangToggle extends StatelessWidget {
+  const _LangToggle({required this.lang});
+  final LangProvider lang;
+
+  @override
+  Widget build(BuildContext context) {
+    final isPl = lang.lang == 'pl';
+    return GestureDetector(
+      onTap: lang.toggle,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFF2A2010)),
+        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          _LangChip(label: 'PL', active: isPl),
+          const SizedBox(width: 6),
+          Container(width: 1, height: 14, color: Colors.white12),
+          const SizedBox(width: 6),
+          _LangChip(label: 'EN', active: !isPl),
+        ]),
+      ),
+    );
+  }
+}
+
+class _LangChip extends StatelessWidget {
+  const _LangChip({required this.label, required this.active});
+  final String label;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(label,
+        style: TextStyle(
+          fontFamily: 'Norse',
+          fontSize: 13,
+          letterSpacing: 1.5,
+          color: active ? const Color(0xFFD4A017) : Colors.white30,
+          fontWeight: active ? FontWeight.w700 : FontWeight.normal,
+        ));
+  }
+}
+
+// ── Step Item ────────────────────────────────────────────────────
 class _StepItem extends StatelessWidget {
   const _StepItem({required this.index, required this.label, required this.icon, required this.current});
   final int index, current;
@@ -180,7 +225,7 @@ class _StepItem extends StatelessWidget {
           width: 24, height: 24,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: isDone ? const Color(0xFFD4A017) : isActive ? Colors.transparent : Colors.transparent,
+            color: isDone ? const Color(0xFFD4A017) : Colors.transparent,
             border: Border.all(
               color: isDone || isActive ? const Color(0xFFD4A017) : Colors.white24,
               width: 1.5,
@@ -201,14 +246,15 @@ class _StepItem extends StatelessWidget {
         Icon(icon, size: 15,
             color: isActive ? const Color(0xFFD4A017) : isDone ? Colors.white54 : Colors.white24),
         const SizedBox(width: 8),
-        Text(label,
-            style: TextStyle(
-              fontFamily: 'Norse',
-              fontSize: 13,
-              letterSpacing: 1,
-              color: isActive ? const Color(0xFFD4A017) : isDone ? Colors.white60 : Colors.white30,
-              fontWeight: isActive ? FontWeight.w700 : FontWeight.normal,
-            )),
+        Flexible(
+          child: Text(label,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: 'Norse', fontSize: 13, letterSpacing: 1,
+                color: isActive ? const Color(0xFFD4A017) : isDone ? Colors.white60 : Colors.white30,
+                fontWeight: isActive ? FontWeight.w700 : FontWeight.normal,
+              )),
+        ),
       ]),
     );
   }
@@ -216,37 +262,34 @@ class _StepItem extends StatelessWidget {
 
 // ── Top Bar ─────────────────────────────────────────────────────
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.step, required this.subtitle});
+  const _TopBar({required this.step, required this.subtitle, required this.lang});
   final int step;
   final String subtitle;
+  final LangProvider lang;
 
   @override
   Widget build(BuildContext context) {
+    final stepLabel = lang.t('step_of').replaceAll('{n}', '${step + 1}');
     return Container(
-      padding: const EdgeInsets.fromLTRB(40, 28, 40, 20),
+      padding: const EdgeInsets.fromLTRB(40, 24, 40, 18),
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: Color(0xFF2A2010))),
       ),
       child: Row(children: [
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('KROK ${step + 1} Z 4',
+          Text(stepLabel,
               style: const TextStyle(
-                fontFamily: 'Norse',
-                fontSize: 11,
-                color: Color(0xFF8B6914),
-                letterSpacing: 3,
+                fontFamily: 'Norse', fontSize: 11,
+                color: Color(0xFF8B6914), letterSpacing: 3,
               )),
           const SizedBox(height: 4),
           Text(subtitle,
               style: const TextStyle(
-                fontFamily: 'Norse',
-                fontSize: 22,
-                color: Colors.white,
-                letterSpacing: 1,
+                fontFamily: 'Norse', fontSize: 22,
+                color: Colors.white, letterSpacing: 1,
               )),
         ]),
         const Spacer(),
-        // Progress bar
         SizedBox(
           width: 160,
           child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
@@ -272,9 +315,10 @@ class _TopBar extends StatelessWidget {
 
 // ── Bottom Navigation Bar ────────────────────────────────────────
 class _BottomBar extends StatelessWidget {
-  const _BottomBar({required this.step, required this.prov});
+  const _BottomBar({required this.step, required this.prov, required this.lang});
   final int step;
   final GeneratorProvider prov;
+  final LangProvider lang;
 
   bool _canProceed() {
     final cfg = prov.config;
@@ -302,7 +346,7 @@ class _BottomBar extends StatelessWidget {
           OutlinedButton.icon(
             onPressed: prov.isGenerating ? null : prov.prevStep,
             icon: const Icon(Icons.arrow_back, size: 16),
-            label: const Text('WSTECZ'),
+            label: Text(lang.t('back')),
             style: OutlinedButton.styleFrom(
               foregroundColor: Colors.white54,
               side: const BorderSide(color: Color(0xFF3A2E1A)),
@@ -314,7 +358,7 @@ class _BottomBar extends StatelessWidget {
         if (prov.lastError != null)
           Padding(
             padding: const EdgeInsets.only(right: 16),
-            child: Text(prov.lastError!,
+            child: Text('${lang.t('error_prefix')}${prov.lastError}',
                 style: const TextStyle(color: Colors.redAccent, fontSize: 13, fontFamily: 'Norse')),
           ),
         if (prov.outputPath != null)
@@ -323,7 +367,7 @@ class _BottomBar extends StatelessWidget {
             child: Row(children: [
               const Icon(Icons.check_circle, color: Colors.greenAccent, size: 18),
               const SizedBox(width: 6),
-              Text('Gotowe: ${prov.outputPath!.split(r'\').last}',
+              Text('${lang.t('done_prefix')}${prov.outputPath!.split(r'\').last}',
                   style: const TextStyle(
                       color: Colors.greenAccent, fontSize: 13, fontFamily: 'Norse')),
             ]),
@@ -333,9 +377,10 @@ class _BottomBar extends StatelessWidget {
               ? () => isLast ? _generate(context, prov) : prov.nextStep()
               : null,
           icon: prov.isGenerating
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              ? const SizedBox(width: 16, height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
               : Icon(isLast ? Icons.build_outlined : Icons.arrow_forward, size: 16),
-          label: Text(isLast ? 'GENERUJ LAUNCHER' : 'DALEJ'),
+          label: Text(isLast ? lang.t('generate') : lang.t('next')),
           style: ElevatedButton.styleFrom(
             backgroundColor: canProceed ? const Color(0xFF8B6914) : Colors.white12,
             foregroundColor: Colors.white,
@@ -354,25 +399,20 @@ class _BottomBar extends StatelessWidget {
     prov.setOutput(null);
     try {
       final cfg = prov.config;
-      // Zapisz salt jeśli zaznaczono
       if (cfg.saveSalt) await SharedSalt.save(cfg.salt);
 
-      // Wygeneruj encrypted config
       final encryptedJson = cfg.toEncryptedJson();
       final outputDir = Directory('output/${cfg.serverName}');
       await outputDir.create(recursive: true);
 
-      // Zapisz encrypted config
-      final configFile = File('${outputDir.path}/config_encrypted.json');
-      await configFile.writeAsString(jsonEncode({'data': encryptedJson}));
-
-      // Zapisz ftp.json (niezaszyfrowany preview)
-      final ftpFile = File('${outputDir.path}/ftp_preview.json');
-      await ftpFile.writeAsString(const JsonEncoder.withIndent('  ').convert(cfg.toFtpJson()));
+      await File('${outputDir.path}/config_encrypted.json')
+          .writeAsString(jsonEncode({'data': encryptedJson}));
+      await File('${outputDir.path}/ftp_preview.json')
+          .writeAsString(const JsonEncoder.withIndent('  ').convert(cfg.toFtpJson()));
 
       prov.setOutput(outputDir.path);
     } catch (e) {
-      prov.setError('Błąd: $e');
+      prov.setError('$e');
     } finally {
       prov.setGenerating(false);
     }
@@ -398,4 +438,3 @@ class _GridPainter extends CustomPainter {
   @override
   bool shouldRepaint(_) => false;
 }
-

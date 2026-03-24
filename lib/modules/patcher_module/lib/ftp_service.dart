@@ -1,0 +1,1423 @@
+import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
+import 'package:flutter/services.dart';
+import 'package:ftpconnect/ftpconnect.dart';
+import 'file_info.dart';
+import 'file_cache.dart';
+import 'package:crypto/crypto.dart';
+import 'package:dartssh2/dartssh2.dart';
+import 'dart:typed_data';
+
+enum ConnectionProtocol { ftp, sftp }
+
+class ScanProgress {
+  final int totalFiles;
+  final int totalSize;
+  final String currentPath;
+  final List<String> scannedItems;
+  final int activeConnections;
+  ScanProgress({
+    required this.totalFiles,
+    required this.totalSize,
+    required this.currentPath,
+    required this.scannedItems,
+    required this.activeConnections,
+  });
+  String get totalSizeFormatted {
+    if (totalSize < 1024) return '$totalSize B';
+    if (totalSize < 1024 * 1024) return '${(totalSize / 1024).toStringAsFixed(2)} KB';
+    if (totalSize < 1024 * 1024 * 1024) return '${(totalSize / (1024 * 1024)).toStringAsFixed(2)} MB';
+    return '${(totalSize / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+}
+
+class UploadProgress {
+  final String fileName;
+  final int uploadedBytes;
+  final int totalBytes;
+  final String percentage;
+
+  UploadProgress({
+    required this.fileName,
+    required this.uploadedBytes,
+    required this.totalBytes,
+    required this.percentage,
+  });
+}
+
+class _ScanState {
+  int totalFiles = 0;
+  int totalSize = 0;
+  int activeConnections = 0;
+  int maxActiveConnections = 0;
+  final Map<String, int> fileCountByExtension = {};
+  final Map<String, int> fileSizeByExtension = {};
+  final List<String> scannedItems = [];
+  final Set<String> processedPaths = {}; // ścieżki już uwzględnione w sumowaniu
+}
+
+class _CacheState {
+  int totalItems = 0;
+  int activeConnections = 0;
+  int totalSize = 0; // suma rozmiarów plików podczas budowy cache
+  final List<String> scannedItems = [];
+}
+class FtpService {
+  late FTPConnect ftpConnect;
+  SftpClient? sftpClient;
+  SSHClient? sshClient;
+  ConnectionProtocol protocol = ConnectionProtocol.ftp;
+  String currentPath = '/';
+  List<String> patchPaths = [];
+  static const int maxConcurrentConnections = 10;
+  int poolSize = 4; // domyślna wielkość puli (można ustawić z UI)
+  bool enableServerChecksum = false; // WYŁĄCZONE domyślnie - bardzo spowalnia skanowanie!
+  // Jeśli podasz lokalną ścieżkę, po zbudowaniu cache sprawdzimy kilka plików z serwera
+  String localBasePath = '';
+  int serverHashSampleCount = 5; // ile plików sprawdzić po zbudowaniu cache
+  late String _host;
+  late int _port;
+  late String _user;
+  late String _pass;
+
+  // Cache na ostatni wygenerowany JSON
+  Map<String, dynamic>? _lastGeneratedJson;
+
+  // Cache na ostatnią listę plików
+  List<FileCache>? _lastCache;
+  Future<void> initialize() async {
+    final String configJson = await rootBundle.loadString('assets/ftp.json');
+    final Map<String, dynamic> config = jsonDecode(configJson);
+    _host = config['host'] as String;
+    _port = (config['port'] as num?)?.toInt() ?? 21;
+    _user = config['username'] as String;
+    _pass = config['password'] as String;
+
+    print('[FTP] Initializing dual protocol check for $_host (Port: $_port)...');
+
+    // Try both protocols in parallel
+    try {
+      final protocolWinner = await Future.any([
+        _tryConnectFtp(),
+        _tryConnectSftp(),
+      ]).timeout(const Duration(seconds: 15));
+
+      protocol = protocolWinner;
+      print('[FTP] Winner protocol: ${protocol.name.toUpperCase()}');
+    } catch (e) {
+      print('[FTP] Dual protocol check failed or timed out: $e');
+      // If port is specifically 2022/22, default to SFTP, otherwise FTP
+      if (_port == 2022 || _port == 22) {
+        protocol = ConnectionProtocol.sftp;
+      } else {
+        protocol = ConnectionProtocol.ftp;
+      }
+      print('[FTP] Falling back to default protocol: ${protocol.name.toUpperCase()}');
+    }
+
+    // Initialize the chosen connector
+    if (protocol == ConnectionProtocol.ftp) {
+      ftpConnect = FTPConnect(_host, user: _user, pass: _pass, port: _port);
+    } else {
+      // SFTP initialization happens on demand or we can pre-connect
+      await _establishSftp();
+    }
+
+    try {
+      final String patchConfigJson = await rootBundle.loadString('assets/patch_config.json');
+      final Map<String, dynamic> patchConfig = jsonDecode(patchConfigJson);
+      final paths = patchConfig['patch_paths'] as List<dynamic>?;
+      if (paths != null) {
+        patchPaths = paths.map((e) => e.toString()).toList();
+      }
+    } catch (e) {
+      print('[FTP] Could not load patch_config.json, using default: $e');
+      patchPaths = ['/BepInEx/']; // Fallback
+    }
+  }
+
+  Future<ConnectionProtocol> _tryConnectFtp() async {
+    try {
+      final testConn = FTPConnect(_host, user: _user, pass: _pass, port: _port, timeout: 5);
+      await testConn.connect();
+      await testConn.disconnect();
+      return ConnectionProtocol.ftp;
+    } catch (e) {
+      await Future.delayed(const Duration(seconds: 20)); // Keep future alive if failed
+      throw e;
+    }
+  }
+
+  Future<ConnectionProtocol> _tryConnectSftp() async {
+    try {
+      final socket = await SSHSocket.connect(_host, _port == 21 ? 2022 : _port, timeout: const Duration(seconds: 5));
+      final client = SSHClient(
+        socket as dynamic,
+        username: _user,
+        onPasswordRequest: () => _pass,
+      );
+      await client.authenticated;
+      client.close();
+      return ConnectionProtocol.sftp;
+    } catch (e) {
+      await Future.delayed(const Duration(seconds: 20)); // Keep future alive if failed
+      throw e;
+    }
+  }
+
+  Future<void> _establishSftp() async {
+    try {
+      final socket = await SSHSocket.connect(_host, _port == 21 ? 2022 : _port);
+      sshClient = SSHClient(
+        socket as dynamic,
+        username: _user,
+        onPasswordRequest: () => _pass,
+      );
+      await sshClient!.authenticated;
+      sftpClient = await sshClient!.sftp();
+      print('[SFTP] Connection established');
+    } catch (e) {
+      print('[SFTP] Connection error: $e');
+      rethrow;
+    }
+  }
+
+  // Getter do pobierania cache
+  List<FileCache>? getLastCache() {
+    print('[FTP] getLastCache called -> ${_lastCache == null ? 'null' : '${_lastCache!.length} items'}');
+    return _lastCache;
+  }
+
+  Future<FTPConnect> _createNewConnection() async {
+    return FTPConnect(_host, user: _user, pass: _pass, port: _port);
+  }
+
+  // Uniwersalny helper retry z exponential backoff dostępny dla całej klasy
+  Future<T> _withRetry<T>(Future<T> Function() fn, {int retries = 2, Duration initialDelay = const Duration(milliseconds: 300)}) async {
+    Duration delay = initialDelay;
+    for (int attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await fn();
+      } catch (e) {
+        if (attempt == retries) rethrow;
+        await Future.delayed(delay);
+        delay *= 2;
+      }
+    }
+    // unreachable, ale wymagane przez kompilator
+    throw StateError('Unreachable');
+  }
+
+  Future<List<FileInfo>> listFiles({required String path}) async {
+    if (protocol == ConnectionProtocol.sftp) {
+      return _listSftpFiles(path: path);
+    }
+
+    try {
+      print('[FTP] Proba polaczenia do: $path');
+      await ftpConnect.connect();
+      await ftpConnect.setTransferType(TransferType.binary);
+      ftpConnect.transferMode = TransferMode.passive;
+      print('[FTP] Polaczono pomyslnie (Passive/Binary)');
+      await ftpConnect.changeDirectory(path);
+      currentPath = await ftpConnect.currentDirectory();
+      final List<FTPEntry> entries = await ftpConnect.listDirectoryContent();
+      // Dodano logowanie wszystkich pobranych plików z FTP
+      print('[FTP] Lista pobranych plików:');
+      for (final entry in entries) {
+        print('  ${entry.name} (${entry.type.describeEnum})');
+      }
+      await ftpConnect.disconnect();
+      return entries
+          .where((e) => e.name != '.' && e.name != '..')
+          .map((e) {
+        final bool isDir = e.type == FTPEntryType.dir;
+        final String typeStr = e.type.describeEnum;
+        return FileInfo(
+          name: e.name,
+          isDir: isDir,
+          size: e.size ?? 0,
+          modifiedDate: e.modifyTime,
+          permission: e.permission ?? '-',
+          owner: e.owner,
+          group: e.group,
+          uid: e.uid,
+          gid: e.gid,
+          mode: e.mode,
+          unique: e.unique,
+          type: typeStr,
+        );
+      }).toList();
+    } catch (e) {
+      print('[FTP] BLAD polaczenia: $e');
+      rethrow;
+    }
+  }
+
+  Future<List<FileInfo>> _listSftpFiles({required String path}) async {
+    try {
+      if (sftpClient == null) await _establishSftp();
+      
+      final entries = await sftpClient!.listdir(path);
+      print('[SFTP] Lista pobranych plików ($path):');
+      for (final entry in entries) {
+        print('  ${entry.filename} (isDirectory=${entry.attr.isDirectory})');
+      }
+
+      return entries
+          .where((e) => e.filename != '.' && e.filename != '..')
+          .map((e) {
+            final isDirectory = e.attr.isDirectory;
+            return FileInfo(
+              name: e.filename,
+              isDir: isDirectory,
+              size: (e.attr.size ?? 0).toInt(),
+              modifiedDate: e.attr.modifyTime != null 
+                  ? DateTime.fromMillisecondsSinceEpoch(e.attr.modifyTime! * 1000)
+                  : null,
+              permission: e.attr.mode?.toString() ?? '-',
+              type: isDirectory ? 'dir' : 'file',
+            );
+          }).toList();
+    } catch (e) {
+      print('[SFTP] Error listing files: $e');
+      rethrow;
+    }
+  }
+    Stream<ScanProgress> getStatisticsForAllFoldersStream() async* {
+    // Prosta funkcja — tylko buduje cache i forwarduje progress
+    _ConnectionPool pool = _ConnectionPool(maxConnections: poolSize, host: _host, port: _port, user: _user, pass: _pass);
+    try {
+      await pool.init();
+      print('[FTP] Start skanowania...');
+
+      final CacheBuildResult result = await buildFileCacheWithProgress(pool: pool);
+
+      // Forward wszystkie progress events
+      await for (final progress in result.progress) {
+        yield progress;
+      }
+
+      // Po skończeniu — cache i JSON już są ustawione wewnątrz buildFileCacheWithProgress
+      print('[FTP] Skanowanie zakończone. Cache: ${_lastCache?.length ?? 0}, JSON: ${_lastGeneratedJson != null}');
+
+    } catch (e) {
+      print('[FTP] Błąd skanowania: $e');
+      rethrow;
+    } finally {
+      await pool.close();
+    }
+  }
+  Future<CacheBuildResult> buildFileCacheWithProgress({_ConnectionPool? pool}) async {
+    final controller = StreamController<ScanProgress>.broadcast();
+    final cache = <FileCache>[];
+    final cacheState = _CacheState(); // Współdzielony stan
+    final semaphore = _Semaphore(maxConcurrentConnections);
+
+    // Uruchom proces w tle i zwróć result od razu
+    Future.microtask(() async {
+      // helper to get active connections (pool may be null)
+      int getActive() => pool?.inUseCount ?? cacheState.activeConnections;
+
+      // Emituj początkowy postęp
+      print('[FTP] Starting cache build with patchPaths: $patchPaths');
+      controller.add(ScanProgress(
+        totalFiles: 0,
+        totalSize: cacheState.totalSize,
+        currentPath: 'Rozpoczynam budowanie cache...',
+        scannedItems: List<String>.from(cacheState.scannedItems),
+        activeConnections: getActive(),
+      ));
+      try {
+        for (final path in patchPaths) {
+          print('[FTP] Processing patch path: $path');
+          FTPConnect? mainConnection;
+          bool mainFromPool = false;
+          try {
+            if (pool != null) {
+              mainConnection = await pool.acquire();
+              mainFromPool = true;
+            } else {
+              mainConnection = await _createNewConnection();
+              await mainConnection.connect();
+              await mainConnection.setTransferType(TransferType.binary);
+              mainConnection.transferMode = TransferMode.passive;
+            }
+
+            if (path.endsWith('/')) {
+              await _handleDirectory(path, mainConnection, cache, cacheState, controller, pool, semaphore, getActive);
+            } else {
+              await _handleFile(path, mainConnection, cache, cacheState, controller, getActive);
+            }
+          } finally {
+            if (mainFromPool && mainConnection != null) {
+              pool!.release(mainConnection);
+            } else {
+              await mainConnection?.disconnect();
+            }
+          }
+        }
+
+         // GENEROWANIE HASZÓW I JSON
+         print('[FTP] Generowanie haszów...');
+         for (int i = 0; i < cache.length; i++) {
+           final entry = cache[i];
+           if (entry.type == 'file' && entry.computedHash == null) {
+             final computed = generateComputedHash(entry);
+             cache[i] = FileCache(
+               name: entry.name,
+               path: entry.path,
+               size: entry.size,
+               type: entry.type,
+               extension: entry.extension,
+               modifyTime: entry.modifyTime,
+               computedHash: computed,
+             );
+           }
+         }
+         print('[FTP] Hasze wygenerowane');
+
+         // Generuj JSON
+         print('[FTP] Generowanie JSON...');
+         final _ScanState scanState = _ScanState();
+         int totalSize = 0;
+         for (final c in cache) {
+           if (c.type == 'file') {
+             scanState.totalFiles++;
+             totalSize += c.size;
+             final ext = c.extension;
+             scanState.fileCountByExtension[ext] = (scanState.fileCountByExtension[ext] ?? 0) + 1;
+             scanState.fileSizeByExtension[ext] = (scanState.fileSizeByExtension[ext] ?? 0) + c.size;
+           }
+         }
+         scanState.totalSize = totalSize;
+
+         final updateJson = _generateUpdateJson(cache, scanState);
+         final jsonPath = await _saveUpdateJson(updateJson);
+         print('[FTP] JSON zapisany: $jsonPath');
+
+         // WAŻNE: Ustaw _lastCache i _lastGeneratedJson
+         _lastCache = cache;
+         _lastGeneratedJson = updateJson;
+         print('[FTP] _lastCache ustawiony: ${_lastCache?.length ?? 0} items');
+         print('[FTP] _lastGeneratedJson ustawiony');
+
+         // Emituj finalny progress
+         controller.add(ScanProgress(
+           totalFiles: scanState.totalFiles,
+           totalSize: scanState.totalSize,
+           currentPath: 'Zakończono - JSON: $jsonPath',
+           scannedItems: List<String>.from(cacheState.scannedItems),
+           activeConnections: pool?.inUseCount ?? 0,
+         ));
+
+       } catch (e) {
+         print('[FTP] Błąd w buildFileCacheWithProgress: $e');
+         rethrow;
+       } finally {
+         controller.close();
+       }
+     });
+
+     return CacheBuildResult(cache: cache, progress: controller.stream);
+   }
+
+  Future<void> _handleDirectory(String dirPath, FTPConnect mainConnection, List<FileCache> cache, _CacheState cacheState, StreamController<ScanProgress> controller, _ConnectionPool? pool, _Semaphore semaphore, int Function() getActive) async {
+    if (protocol == ConnectionProtocol.sftp) {
+      await _handleDirectorySftp(dirPath, cache, cacheState, controller, getActive);
+      return;
+    }
+
+    final dirExists = await mainConnection.checkFolderExistence(dirPath);
+    if (!dirExists) {
+      print('[FTP] Directory does not exist, skipping: $dirPath');
+      return;
+    }
+
+    await mainConnection.changeDirectory(dirPath);
+    final List<FTPEntry> entries = await mainConnection.listDirectoryContent();
+    final List<FTPEntry> files = entries.where((e) => e.name != '.' && e.name != '..' && e.type != FTPEntryType.dir).toList();
+    final List<FTPEntry> dirs = entries.where((e) => e.name != '.' && e.name != '..' && e.type == FTPEntryType.dir).toList();
+
+    // Add files from dirPath
+    for (final entry in files) {
+      final extension = _getExtension(entry.name);
+      cache.add(FileCache(
+        name: entry.name,
+        path: dirPath,
+        size: entry.size ?? 0,
+        type: 'file',
+        extension: extension,
+        modifyTime: entry.modifyTime,
+      ));
+      cacheState.totalItems++;
+      cacheState.totalSize += (entry.size ?? 0);
+      cacheState.scannedItems.insert(0, '$dirPath${entry.name}');
+      if (cacheState.scannedItems.length > 100) cacheState.scannedItems.removeLast();
+      controller.add(ScanProgress(
+        totalFiles: cacheState.totalItems,
+        totalSize: cacheState.totalSize,
+        currentPath: '$dirPath${entry.name}',
+        scannedItems: List<String>.from(cacheState.scannedItems),
+        activeConnections: getActive(),
+      ));
+    }
+
+    // For each sub-directory, a new connection
+    final futures = dirs.map((dir) async {
+      await semaphore.acquire();
+      FTPConnect? conn;
+      bool fromPool = false;
+      try {
+        if (pool != null) {
+          conn = await pool.acquire();
+          fromPool = true;
+        } else {
+          conn = await _createNewConnection();
+          await conn.connect();
+          await conn.setTransferType(TransferType.binary);
+          conn.transferMode = TransferMode.passive;
+        }
+        if (!fromPool) {
+          cacheState.activeConnections++;
+        }
+        await _recursiveBuildCache(conn, '$dirPath${dir.name}/', cache, controller, cacheState, pool);
+      } catch (e) {
+        final msg = 'ODRZUCONE (cache connect): $dirPath${dir.name}/ - $e';
+        print('[FTP] $msg');
+        cacheState.scannedItems.insert(0, msg);
+        if (cacheState.scannedItems.length > 100) cacheState.scannedItems.removeLast();
+        if (!controller.isClosed) {
+          controller.add(ScanProgress(
+            totalFiles: cacheState.totalItems,
+            totalSize: cacheState.totalSize,
+            currentPath: '$dirPath${dir.name}/',
+            scannedItems: List<String>.from(cacheState.scannedItems),
+            activeConnections: getActive(),
+          ));
+        }
+      } finally {
+        if (fromPool && conn != null) {
+          pool!.release(conn);
+        } else {
+          try { if (conn != null) await conn.disconnect(); } catch (_) {}
+          if (conn != null) cacheState.activeConnections--;
+        }
+        semaphore.release();
+      }
+    }).toList();
+
+    await Future.wait(futures);
+  }
+
+  Future<void> _handleFile(String filePath, FTPConnect connection, List<FileCache> cache, _CacheState cacheState, StreamController<ScanProgress> controller, int Function() getActive) async {
+    if (protocol == ConnectionProtocol.sftp) {
+      await _handleFileSftp(filePath, cache, cacheState, controller, getActive);
+      return;
+    }
+    try {
+      // Normalize path to handle leading/trailing slashes
+      String normalizedPath = filePath.replaceAll(RegExp(r'/+'), '/');
+      if (normalizedPath.endsWith('/')) {
+        normalizedPath = normalizedPath.substring(0, normalizedPath.length - 1);
+      }
+      if (!normalizedPath.startsWith('/')) {
+        normalizedPath = '/$normalizedPath';
+      }
+
+      final parentPath = getParentPath(normalizedPath);
+      final fileName = normalizedPath.split('/').where((e) => e.isNotEmpty).last;
+
+      print('[FTP] _handleFile: normalized=$normalizedPath, parent=$parentPath, fileName=$fileName');
+      // Dodano logowanie patch_config
+      print('[FTP][patch_config] Próbuję dodać plik: $filePath (normalized: $normalizedPath)');
+
+      // Go to parent directory to list its content
+      await connection.changeDirectory(parentPath);
+      final entries = await connection.listDirectoryContent();
+      
+      FTPEntry? fileEntry;
+      try {
+        fileEntry = entries.firstWhere((e) {
+          if (e.name == null || e.type == FTPEntryType.dir) return false;
+          return e.name!.toLowerCase() == fileName.toLowerCase();
+        });
+      } catch (e) {
+        // Not found - try case-sensitive match as fallback
+        print('[FTP] Case-insensitive search failed for $fileName, trying alternatives...');
+        try {
+          fileEntry = entries.firstWhere((e) {
+            if (e.name == null || e.type == FTPEntryType.dir) return false;
+            // Try exact match or variations
+            return e.name == fileName || e.name!.replaceAll('_', ' ') == fileName.replaceAll('_', ' ');
+          });
+        } catch (_) {
+          // Still not found
+        }
+      }
+
+      if (fileEntry == null) {
+        print('[FTP][patch_config] NIE ZNALEZIONO pliku: $filePath (normalized: $normalizedPath, szukano: $fileName w $parentPath)');
+        print('[FTP] Available entries: ${entries.map((e) => '${e.name} (${e.type.describeEnum})').join(', ')}');
+        return;
+      }
+      print('[FTP][patch_config] Dodano plik: $filePath (FTP: ${fileEntry.name})');
+
+      final size = fileEntry.size ?? 0;
+      final extension = _getExtension(fileEntry.name!);
+
+      cache.add(FileCache(
+        name: fileEntry.name!,
+        path: parentPath,
+        size: size,
+        type: 'file',
+        extension: extension,
+        modifyTime: fileEntry.modifyTime,
+      ));
+      cacheState.totalItems++;
+      cacheState.totalSize += size;
+      cacheState.scannedItems.insert(0, normalizedPath);
+      if (cacheState.scannedItems.length > 100) cacheState.scannedItems.removeLast();
+      controller.add(ScanProgress(
+        totalFiles: cacheState.totalItems,
+        totalSize: cacheState.totalSize,
+        currentPath: normalizedPath,
+        scannedItems: List<String>.from(cacheState.scannedItems),
+        activeConnections: getActive(),
+      ));
+      print('[FTP] Successfully added file: $normalizedPath (size: $size bytes)');
+    } catch (e) {
+      print('[FTP] Error handling file $filePath: $e');
+    }
+  }
+
+  Future<void> _recursiveBuildCache(FTPConnect connection, String path, List<FileCache> cache, StreamController<ScanProgress> controller, _CacheState cacheState, [_ConnectionPool? pool]) async {
+     if (protocol == ConnectionProtocol.sftp) {
+       await _recursiveBuildSftpCache(path, cache, controller, cacheState);
+       return;
+     }
+     int getActiveRecursive() => pool?.inUseCount ?? cacheState.activeConnections;
+     try {
+       final folderExists = await connection.checkFolderExistence(path);
+       if (!folderExists) {
+         print('[FTP] Folder nie istnieje podczas budowania cache: $path');
+         return;
+       }
+       await connection.changeDirectory(path);
+       final List<FTPEntry> entries = await connection.listDirectoryContent();
+       for (final entry in entries) {
+         if (entry.name == '.' || entry.name == '..') continue;
+         final isDir = entry.type == FTPEntryType.dir;
+         final type = isDir ? 'dir' : 'file';
+         final extension = isDir ? '' : _getExtension(entry.name!);
+
+        cache.add(FileCache(
+          name: entry.name!,
+          path: path,
+          size: entry.size ?? 0,
+          type: type,
+          extension: extension,
+          modifyTime: entry.modifyTime,
+        ));
+        cacheState.totalItems++;
+        // Jeśli to plik – dodaj rozmiar do sumy
+        if (type == 'file') {
+          cacheState.totalSize += (entry.size ?? 0);
+        }
+        // Dodaj do skumulowanej listy (ostatnie 100)
+        cacheState.scannedItems.insert(0, path + entry.name!);
+        if (cacheState.scannedItems.length > 100) cacheState.scannedItems.removeLast();
+        if (!controller.isClosed) {
+          controller.add(ScanProgress(
+            totalFiles: cacheState.totalItems,
+            totalSize: cacheState.totalSize,
+            currentPath: path + entry.name!,
+            scannedItems: List<String>.from(cacheState.scannedItems),
+            activeConnections: getActiveRecursive(),
+          ));
+         }
+         if (isDir) {
+           final newPath = path.endsWith('/') ? '$path${entry.name!}/' : '$path/${entry.name!}/';
+           await _recursiveBuildCache(connection, newPath, cache, controller, cacheState, pool);
+         }
+       }
+     } catch (e) {
+       print('[FTP] Błąd podczas budowania cache dla $path: $e');
+     }
+   }
+  Future<void> disconnect() async {
+    try {
+      await ftpConnect.disconnect();
+      sshClient?.close();
+      await sshClient?.done;
+    } catch (e) {
+      // ignore
+    }
+  }
+  String _getExtension(String filename) {
+    if (!filename.contains('.')) return 'bez rozszerzenia';
+    final parts = filename.split('.');
+    return '.${parts.last.toLowerCase()}';
+  }
+  String getParentPath(String path) {
+    if (path.length <= 1) return '/'; // it's already root
+    // Normalize path to not have double slashes
+    String normalizedPath = path.replaceAll(RegExp(r'/+'), '/');
+    if (normalizedPath.endsWith('/')) {
+      normalizedPath = normalizedPath.substring(0, normalizedPath.length - 1);
+    }
+    if (normalizedPath.isEmpty) return '/';
+
+    final parts = normalizedPath.split('/').where((e) => e.isNotEmpty).toList();
+    if (parts.length <= 1) { // It's a file in the root like /file.txt
+        return '/';
+    }
+    parts.removeLast();
+    final result = '/${parts.join('/')}/';
+    // Remove any double slashes that might have been created
+    return result.replaceAll(RegExp(r'/+'), '/');
+  }
+
+  // Wygeneruj hash na bazie rozmiaru i daty modyfikacji
+  String generateComputedHash(FileCache fileCache) {
+    if (fileCache.type != 'file') return '';
+
+    final modifyTimeStr = fileCache.modifyTime?.toIso8601String() ?? 'no_date';
+    final data = '${fileCache.name}|${fileCache.size}|${fileCache.extension}|$modifyTimeStr';
+    final digest = sha256.convert(utf8.encode(data));
+    return digest.toString().substring(0, 16); // Skróć do 16 znaków dla czytelności
+  }
+
+  // Pobierz hash z serwera dla pliku (z retry i timeout)
+  Future<String?> fetchServerHashForFile(String remotePath, {int retries = 1}) async {
+    if (!enableServerChecksum) return null;
+    try {
+      return await _withRetry<String?>(() => getServerChecksum(remotePath), retries: retries);
+    } catch (e) {
+      print('[FTP][HASH] Failed to fetch hash for $remotePath: $e');
+      return null;
+    }
+  }
+
+  // Pobierz hasze dla listy plików asynchronicznie (max parallelizm wg pool size)
+  Future<Map<String, String>> fetchServerHashesForMultipleFiles(List<String> remotePaths, {int maxConcurrent = 4}) async {
+    final result = <String, String>{};
+    if (remotePaths.isEmpty) return result;
+
+    final semaphore = _Semaphore(maxConcurrent);
+    final futures = remotePaths.map((path) async {
+      await semaphore.acquire();
+      try {
+        final hash = await fetchServerHashForFile(path);
+        if (hash != null) {
+          result[path] = hash;
+        }
+      } finally {
+        semaphore.release();
+      }
+    }).toList();
+
+    await Future.wait(futures);
+    return result;
+  }
+
+  // Próba uzyskania checksum z serwera poprzez surowe komendy FTP.
+  // Zwraca null jeśli brak wsparcia lub błąd.
+  // OSTRZEŻENIE: To jest BARDZO wolne (~2s per plik) - używaj tylko dla małych ilości plików!
+  Future<String?> getServerChecksum(String remotePath, {Duration timeout = const Duration(seconds:2)}) async {
+    if (!enableServerChecksum) return null;
+    try {
+      final socket = await Socket.connect(_host, 21).timeout(timeout);
+      final buffer = StringBuffer();
+      socket.listen((List<int> data) {
+        try { buffer.write(utf8.decode(data)); } catch (_) {}
+      }, onError: (_) {}, onDone: () {});
+
+      // read banner
+      await Future.delayed(const Duration(milliseconds:100));
+      // send login sequence
+      socket.write('USER $_user\r\n');
+      await Future.delayed(const Duration(milliseconds:100));
+      socket.write('PASS $_pass\r\n');
+      await Future.delayed(const Duration(milliseconds:100));
+      socket.write('TYPE I\r\n');
+      await Future.delayed(const Duration(milliseconds:100));
+
+      // list of candidate commands - tylko 2 najlepsze
+      final cmds = [
+        'XMD5 $remotePath',
+        'MD5 $remotePath',
+      ];
+      String? found;
+      for (final cmd in cmds) {
+        buffer.clear();
+        socket.write('$cmd\r\n');
+        // wait for response - zmniejszone z 400ms na 200ms
+        await Future.delayed(const Duration(milliseconds:200));
+        final resp = buffer.toString();
+        // simplistic parse: look for long alnum sequence
+        final reg = RegExp(r'([A-Fa-f0-9]{16,}|[A-Za-z0-9+/=]{16,})');
+        final m = reg.firstMatch(resp);
+        if (m != null) {
+          found = m.group(1)?.trim();
+          break;
+        }
+      }
+      try { socket.write('QUIT\r\n'); } catch (_) {}
+      try { await socket.close(); } catch (_) {}
+      return found;
+    } catch (e) {
+      print('[FTP] serverChecksum attempt failed: $e');
+      return null;
+    }
+  }
+
+  // Oblicz lokalny SHA-256 pliku na dysku (ścieżka absolutna)
+  Future<String> computeLocalSha256(String localPath) async {
+    try {
+      final file = File(localPath);
+      if (!await file.exists()) return '';
+      final bytes = await file.readAsBytes();
+      final digest = sha256.convert(bytes);
+      return digest.toString();
+    } catch (e) {
+      print('[HASH] computeLocalSha256 error for $localPath: $e');
+      return '';
+    }
+  }
+
+  // Porównaj hash z serwera (jeśli dostępny) z lokalnym SHA-256 i wypisz wynik.
+  // Zwraca znaleziony serverHash (lub null). Robi też printy.
+  Future<String?> compareWithServerHash(FileCache fileCache, String localBasePath) async {
+    try {
+      final remotePath = fileCache.fullPath;
+      final serverHash = await getServerChecksum(remotePath);
+      if (serverHash == null) {
+        print('[HASH] serverHash not available for $remotePath');
+        return null;
+      }
+      // oblicz lokalny hash (SHA-256)
+      final localPath = (localBasePath.endsWith('\\') || localBasePath.endsWith('/')) ? localBasePath + fileCache.fullPath.replaceAll('/', '\\') : '$localBasePath\\${fileCache.fullPath.replaceAll('/', '\\')}';
+      final localHash = await computeLocalSha256(localPath);
+      print('[HASH] remote=$serverHash local=$localHash for $remotePath (local:$localPath)');
+      if (localHash.isEmpty) {
+        print('[HASH] local file missing or unreadable: $localPath');
+        return serverHash;
+      }
+      if (localHash == serverHash.toLowerCase() || localHash == serverHash) {
+        print('[HASH][MATCH] $remotePath matches local file');
+      } else {
+        print('[HASH][DIFFER] $remotePath does NOT match local file');
+      }
+      return serverHash;
+    } catch (e) {
+      print('[HASH] compareWithServerHash error: $e');
+      return null;
+    }
+  }
+
+  // Generuj JSON z informacjami o plikach i haszach
+  Map<String, dynamic> _generateUpdateJson(List<FileCache> cache, _ScanState stats) {
+    final files = <Map<String, dynamic>>[];
+
+    for (final entry in cache) {
+      if (entry.type == 'file') {
+        files.add({
+          'path': entry.fullPath,
+          'name': entry.name,
+          'size': entry.size,
+          'extension': entry.extension,
+          'modifyTime': entry.modifyTime?.toIso8601String() ?? '',
+          'hash': entry.hash ?? '',
+        });
+      }
+    }
+
+    // POPRAWKA: Generuj wersję na podstawie zawartości plików, nie czasu skanowania
+    // Dzięki temu launcher nie będzie pobierał wszystkich plików za każdym razem
+    // Sortuj pliki po ścieżce dla deterministycznego hasza
+    final sortedFiles = List<Map<String, dynamic>>.from(files)
+      ..sort((a, b) => (a['path'] as String).compareTo(b['path'] as String));
+    
+    // Stwórz string z wszystkich haszy plików
+    final allHashes = sortedFiles.map((f) => '${f['path']}:${f['size']}:${f['modifyTime']}').join('|');
+    
+    // Wygeneruj hash z tego stringa jako wersję
+    final versionDigest = sha256.convert(utf8.encode(allHashes));
+    final version = versionDigest.toString().substring(0, 16); // 16 znaków wystarczy
+
+    return {
+      'version': version,
+      'timestamp': DateTime.now().toIso8601String(),
+      'totalFiles': stats.totalFiles,
+      'totalSize': stats.totalSize,
+      'totalSizeFormatted': _formatBytes(stats.totalSize),
+      'fileCountByExtension': stats.fileCountByExtension,
+      'fileSizeByExtension': stats.fileSizeByExtension,
+      'files': files,
+    };
+  }
+
+  // Zapisz JSON do pliku
+  Future<String> _saveUpdateJson(Map<String, dynamic> jsonData) async {
+    try {
+      final jsonString = jsonEncode(jsonData);
+      final fileName = 'mods_list.json';
+
+      final dir = Directory.current;
+      final filePath = '${dir.path}/$fileName';
+      final file = File(filePath);
+
+      await file.writeAsString(jsonString);
+      print('[FTP] JSON update saved to: $filePath');
+      return filePath;
+    } catch (e) {
+      print('[FTP] Error saving JSON: $e');
+      return '';
+    }
+  }
+
+  // Helper do formatowania bajtów
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(2)} KB';
+    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+
+  Stream<UploadProgress> uploadFileStream(String localFilePath, String remotePath) async* {
+    if (protocol == ConnectionProtocol.sftp) {
+      yield* _uploadSftpFileStream(localFilePath, remotePath);
+      return;
+    }
+
+    late FTPConnect uploadConn;
+    try {
+      final file = File(localFilePath);
+      if (!await file.exists()) {
+        throw Exception('Plik lokalny nie istnieje: $localFilePath');
+      }
+
+      final fileSize = await file.length();
+      print('[FTP] Rozpoczynam upload: $localFilePath -> $remotePath (rozmiar: $fileSize)');
+
+      uploadConn = await _createNewConnection();
+      await uploadConn.connect();
+      await uploadConn.setTransferType(TransferType.binary);
+      uploadConn.transferMode = TransferMode.passive;
+
+      // Pobierz dane pliku
+      final bytes = await file.readAsBytes();
+
+      // Upload z raportowaniem postępu
+      int uploadedBytes = 0;
+      final chunkSize = 65536; // 64 KB chunks
+
+      for (int i = 0; i < bytes.length; i += chunkSize) {
+        final end = (i + chunkSize < bytes.length) ? i + chunkSize : bytes.length;
+
+        // Raportuj postęp
+        uploadedBytes = end;
+
+        yield UploadProgress(
+          fileName: File(localFilePath).uri.pathSegments.last,
+          uploadedBytes: uploadedBytes,
+          totalBytes: fileSize,
+          percentage: (uploadedBytes / fileSize * 100).toStringAsFixed(1),
+        );
+      }
+
+      // Wyślij cały plik
+      try {
+        await uploadConn.uploadFile(File(localFilePath), sRemoteName: remotePath);
+        print('[FTP] Upload pliku zakoñczony: $remotePath');
+      } catch (e) {
+        print('[FTP] uploadFile failed: $e');
+        rethrow;
+      }
+
+      yield UploadProgress(
+        fileName: File(localFilePath).uri.pathSegments.last,
+        uploadedBytes: fileSize,
+        totalBytes: fileSize,
+        percentage: '100.0',
+      );
+
+      print('[FTP] Upload ukończony: $remotePath');
+    } catch (e) {
+      print('[FTP] Błąd uploadu: $e');
+      rethrow;
+    } finally {
+      try {
+        await uploadConn.disconnect();
+      } catch (_) {}
+    }
+  }
+
+  Stream<UploadProgress> _uploadSftpFileStream(String localFilePath, String remotePath) async* {
+    try {
+      if (sftpClient == null) await _establishSftp();
+      
+      final file = File(localFilePath);
+      final fileSize = await file.length();
+      final fileName = file.uri.pathSegments.last;
+
+      print('[SFTP] Rozpoczynam upload: $localFilePath -> $remotePath');
+
+      // Ensure directory exists
+      final remoteDir = getParentPath(remotePath);
+      await _ensureSftpDirExists(remoteDir);
+
+      final remoteFile = await sftpClient!.open(remotePath, mode: SftpFileOpenMode.create | SftpFileOpenMode.write | SftpFileOpenMode.truncate);
+
+      // WAŻNE: Przekaż CAŁY stream pliku do jednego wywołania write().
+      // Wielokrotne write(Stream.value(chunk)) nie aktualizuje poprawnie offsetu
+      // w dartssh2 i powoduje obcięcie do pierwszego chunk'a (64KB).
+      int uploadedBytes = 0;
+      await remoteFile.write(
+        file.openRead().cast<Uint8List>().map((chunk) {
+          uploadedBytes += chunk.length;
+          return chunk;
+        }),
+      );
+      await remoteFile.close();
+
+      yield UploadProgress(
+        fileName: fileName,
+        uploadedBytes: fileSize,
+        totalBytes: fileSize,
+        percentage: '100.0',
+      );
+      print('[SFTP] Upload ukończony: $remotePath ($fileSize bytes)');
+    } catch (e) {
+      print('[SFTP] Błąd uploadu: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _ensureSftpDirExists(String path) async {
+    final parts = path.split('/').where((e) => e.isNotEmpty).toList();
+    String current = '';
+    for (final part in parts) {
+      current += '/$part';
+      try {
+        await sftpClient!.stat(current);
+      } catch (_) {
+        try {
+          await sftpClient!.mkdir(current);
+          print('[SFTP] Created directory: $current');
+        } catch (_) {}
+      }
+    }
+  }
+
+  // Upload wielu plików z raportowaniem postępu
+  Stream<Map<String, dynamic>> uploadMultipleFilesStream(List<String> localFilePaths, String remoteFolder) async* {
+    try {
+      int completed = 0;
+
+      for (final localPath in localFilePaths) {
+        final fileName = File(localPath).uri.pathSegments.last;
+        final remotePath = remoteFolder.endsWith('/') ? '$remoteFolder$fileName' : '$remoteFolder/$fileName';
+
+        await for (final progress in uploadFileStream(localPath, remotePath)) {
+          yield {
+            'type': 'file_progress',
+            'fileName': progress.fileName,
+            'uploadedBytes': progress.uploadedBytes,
+            'totalBytes': progress.totalBytes,
+            'percentage': progress.percentage,
+            'completed': completed,
+            'total': localFilePaths.length,
+          };
+        }
+
+        completed++;
+        yield {
+          'type': 'file_completed',
+          'fileName': fileName,
+          'completed': completed,
+          'total': localFilePaths.length,
+        };
+      }
+
+      yield {
+        'type': 'all_completed',
+        'completed': completed,
+        'total': localFilePaths.length,
+      };
+    } catch (e) {
+      print('[FTP] Błąd uploadu wielu plików: $e');
+      yield {
+        'type': 'error',
+        'error': e.toString(),
+      };
+    }
+  }
+
+  // Generuj i zapisz JSON z cache
+  Future<String> generateAndSaveJson(List<FileCache> cache) async {
+    try {
+      final _ScanState scanState = _ScanState();
+      int totalSize = 0;
+
+      for (final entry in cache) {
+        if (entry.type == 'file') {
+          scanState.totalFiles++;
+          totalSize += entry.size;
+          final ext = entry.extension;
+          scanState.fileCountByExtension[ext] = (scanState.fileCountByExtension[ext] ?? 0) + 1;
+          scanState.fileSizeByExtension[ext] = (scanState.fileSizeByExtension[ext] ?? 0) + entry.size;
+        }
+      }
+      scanState.totalSize = totalSize;
+
+      final jsonData = _generateUpdateJson(cache, scanState);
+      _lastGeneratedJson = jsonData;
+      return await _saveUpdateJson(jsonData);
+    } catch (e) {
+      print('[FTP] Error generating JSON: $e');
+      rethrow;
+    }
+  }
+
+  // Pobierz ostatni wygenerowany JSON
+  Map<String, dynamic>? getLastGeneratedJson() => _lastGeneratedJson;
+
+  // Stream do uploadu JSON na serwer
+  Stream<Map<String, dynamic>> uploadJsonStream(Map<String, dynamic> jsonData) async* {
+    try {
+      // Zapisz tymczasowy plik JSON
+      final fileName = 'mods_list.json';
+      final filePath = '${Directory.current.path}/$fileName';
+      final file = File(filePath);
+
+      await file.writeAsString(jsonEncode(jsonData));
+      print('[FTP] Tymczasowy JSON: $filePath');
+
+      // Upload na serwer
+      final remotePath = '/$fileName';
+      await for (final progress in uploadFileStream(filePath, remotePath)) {
+        yield {
+          'type': 'file_progress',
+          'fileName': progress.fileName,
+          'uploadedBytes': progress.uploadedBytes,
+          'totalBytes': progress.totalBytes,
+          'percentage': progress.percentage,
+          'completed': 1,
+          'total': 1,
+        };
+      }
+
+      yield {
+        'type': 'file_completed',
+        'fileName': fileName,
+        'completed': 1,
+        'total': 1,
+      };
+
+      yield {
+        'type': 'all_completed',
+        'completed': 1,
+        'total': 1,
+      };
+
+      // Usuń plik tymczasowy
+      try {
+        await file.delete();
+      } catch (_) {}
+
+      print('[FTP] JSON uploaded to: $remotePath');
+    } catch (e) {
+      print('[FTP] Error uploading JSON: $e');
+      yield {
+        'type': 'error',
+        'error': e.toString(),
+      };
+    }
+  }
+
+  Future<void> _handleDirectorySftp(String dirPath, List<FileCache> cache, _CacheState cacheState, StreamController<ScanProgress> controller, int Function() getActive) async {
+    try {
+      if (sftpClient == null) await _establishSftp();
+      final entries = await sftpClient!.listdir(dirPath);
+      
+      for (final entry in entries) {
+        if (entry.filename == '.' || entry.filename == '..') continue;
+        
+        final isDir = entry.attr.isDirectory;
+        final type = isDir ? 'dir' : 'file';
+        final extension = isDir ? '' : _getExtension(entry.filename);
+        final int size = (entry.attr.size ?? 0).toInt();
+        final modifyTime = entry.attr.modifyTime != null 
+            ? DateTime.fromMillisecondsSinceEpoch(entry.attr.modifyTime! * 1000)
+            : null;
+
+        cache.add(FileCache(
+          name: entry.filename,
+          path: dirPath,
+          size: size.toInt(),
+          type: type,
+          extension: extension,
+          modifyTime: modifyTime,
+        ));
+
+        cacheState.totalItems++;
+        if (type == 'file') cacheState.totalSize += size.toInt();
+        
+        final fullPath = dirPath.endsWith('/') ? '$dirPath${entry.filename}' : '$dirPath/${entry.filename}';
+        cacheState.scannedItems.insert(0, fullPath);
+        if (cacheState.scannedItems.length > 100) cacheState.scannedItems.removeLast();
+        
+        controller.add(ScanProgress(
+          totalFiles: cacheState.totalItems,
+          totalSize: cacheState.totalSize,
+          currentPath: fullPath,
+          scannedItems: List<String>.from(cacheState.scannedItems),
+          activeConnections: getActive(),
+        ));
+
+        if (isDir) {
+          final nextDir = fullPath.endsWith('/') ? fullPath : '$fullPath/';
+          await _recursiveBuildSftpCache(nextDir, cache, controller, cacheState);
+        }
+      }
+    } catch (e) {
+      print('[SFTP] Error in _handleDirectorySftp: $e');
+    }
+  }
+
+  Future<void> _handleFileSftp(String filePath, List<FileCache> cache, _CacheState cacheState, StreamController<ScanProgress> controller, int Function() getActive) async {
+    try {
+      if (sftpClient == null) await _establishSftp();
+      
+      String normalizedPath = filePath.replaceAll(RegExp(r'/+'), '/');
+      if (normalizedPath.endsWith('/')) normalizedPath = normalizedPath.substring(0, normalizedPath.length - 1);
+      if (!normalizedPath.startsWith('/')) normalizedPath = '/$normalizedPath';
+
+      final stats = await sftpClient!.stat(normalizedPath);
+      final fileName = normalizedPath.split('/').last;
+      final parentPath = getParentPath(normalizedPath);
+
+      final int statsSize = (stats.size ?? 0).toInt();
+      cache.add(FileCache(
+        name: fileName,
+        path: parentPath,
+        size: statsSize,
+        type: 'file',
+        extension: _getExtension(fileName),
+        modifyTime: stats.modifyTime != null 
+            ? DateTime.fromMillisecondsSinceEpoch(stats.modifyTime! * 1000)
+            : null,
+      ));
+
+      cacheState.totalItems++;
+      cacheState.totalSize += statsSize.toInt();
+      cacheState.scannedItems.insert(0, normalizedPath);
+      if (cacheState.scannedItems.length > 100) cacheState.scannedItems.removeLast();
+      
+      controller.add(ScanProgress(
+        totalFiles: cacheState.totalItems,
+        totalSize: cacheState.totalSize,
+        currentPath: normalizedPath,
+        scannedItems: List<String>.from(cacheState.scannedItems),
+        activeConnections: getActive(),
+      ));
+    } catch (e) {
+      print('[SFTP] Error handling file $filePath: $e');
+    }
+  }
+
+  Future<void> _recursiveBuildSftpCache(String path, List<FileCache> cache, StreamController<ScanProgress> controller, _CacheState cacheState) async {
+    try {
+      final entries = await sftpClient!.listdir(path);
+      for (final entry in entries) {
+        if (entry.filename == '.' || entry.filename == '..') continue;
+        
+        final isDir = entry.attr.isDirectory;
+        final type = isDir ? 'dir' : 'file';
+        final extension = isDir ? '' : _getExtension(entry.filename);
+        final int size = (entry.attr.size ?? 0).toInt();
+        final modifyTime = entry.attr.modifyTime != null 
+            ? DateTime.fromMillisecondsSinceEpoch(entry.attr.modifyTime! * 1000)
+            : null;
+
+        cache.add(FileCache(
+          name: entry.filename,
+          path: path,
+          size: size,
+          type: type,
+          extension: extension,
+          modifyTime: modifyTime,
+        ));
+
+        cacheState.totalItems++;
+        if (type == 'file') cacheState.totalSize += size.toInt();
+        
+        final fullPath = path.endsWith('/') ? '$path${entry.filename}' : '$path/${entry.filename}';
+        cacheState.scannedItems.insert(0, fullPath);
+        if (cacheState.scannedItems.length > 100) cacheState.scannedItems.removeLast();
+        
+        if (!controller.isClosed) {
+          controller.add(ScanProgress(
+            totalFiles: cacheState.totalItems,
+            totalSize: cacheState.totalSize,
+            currentPath: fullPath,
+            scannedItems: List<String>.from(cacheState.scannedItems),
+            activeConnections: 0,
+          ));
+        }
+
+        if (isDir) {
+          final nextDir = fullPath.endsWith('/') ? fullPath : '$fullPath/';
+          await _recursiveBuildSftpCache(nextDir, cache, controller, cacheState);
+        }
+      }
+    } catch (e) {
+      print('[SFTP] Error recursive build cache: $e');
+    }
+  }
+
+  // Ensure that _lastCache is available: if not, build it (synchronously wait for cache build)
+  Future<void> ensureCacheAvailable({int timeoutSeconds = 120}) async {
+    if (_lastCache != null && _lastCache!.isNotEmpty) return;
+    try {
+      // Build cache without pool (simple blocking build)
+      final result = await buildFileCacheWithProgress();
+      // collect progress until done
+      final completer = Completer<void>();
+      result.progress.listen((_) {}, onDone: () {
+        completer.complete();
+      }, onError: (e) {
+        if (!completer.isCompleted) completer.complete();
+      });
+      await completer.future.timeout(Duration(seconds: timeoutSeconds), onTimeout: () {});
+      // Save cache
+      _lastCache = result.cache;
+    } catch (e) {
+      print('[FTP] ensureCacheAvailable error: $e');
+      rethrow;
+    }
+  }
+
+  // Zapisz istniejący _lastGeneratedJson do pliku (jeśli istnieje)
+  Future<String> saveLastGeneratedJsonToDisk() async {
+    if (_lastGeneratedJson == null) throw Exception('No generated JSON available');
+    return await _saveUpdateJson(_lastGeneratedJson!);
+  }
+}
+
+class _Semaphore {
+  final int _maxConcurrent;
+  int _activeCount = 0;
+  final List<Completer<void>> _queue = [];
+  _Semaphore(this._maxConcurrent);
+  Future<void> acquire() async {
+    if (_activeCount < _maxConcurrent) {
+      _activeCount++;
+      return;
+    }
+    final completer = Completer<void>();
+    _queue.add(completer);
+    await completer.future;
+  }
+  void release() {
+    if (_queue.isNotEmpty) {
+      final completer = _queue.removeAt(0);
+      completer.complete();
+    } else {
+      _activeCount--;
+    }
+  }
+}
+class CacheBuildResult {
+  final List<FileCache> cache;
+  final Stream<ScanProgress> progress;
+  CacheBuildResult({required this.cache, required this.progress});
+}
+class _ConnectionPool {
+  final int maxConnections;
+  final String host;
+  final int port;
+  final String user;
+  final String pass;
+  final List<FTPConnect> _available = [];
+  final Set<FTPConnect> _inUse = {};
+  final List<Completer<FTPConnect>> _waiters = [];
+  bool _initialized = false;
+  _ConnectionPool({required this.maxConnections, required this.host, required this.port, required this.user, required this.pass});
+
+  Future<void> init() async {
+    if (_initialized) return;
+    for (int i = 0; i < maxConnections; i++) {
+      FTPConnect conn = FTPConnect(host, user: user, pass: pass, port: port);
+      try {
+        _available.add(conn);
+      } catch (e) {
+        // jeśli nie uda się połączyć, spróbuj ponownie z delay
+        try {
+          await Future.delayed(const Duration(milliseconds: 200));
+          _available.add(conn);
+        } catch (_) {
+          // jeśli nadal nie, dodaj do available bez połączenia i połączamy później
+          _available.add(conn);
+        }
+      }
+    }
+    _initialized = true;
+  }
+
+  Future<FTPConnect> acquire() async {
+    // jeśli dostępne, zwróć ostatnie
+    if (_available.isNotEmpty) {
+      final conn = _available.removeLast();
+      _inUse.add(conn);
+      // upewnij się, że jest połączony
+      try {
+        await conn.currentDirectory();
+      } catch (_) {
+        try {
+          await conn.connect();
+          await conn.setTransferType(TransferType.binary);
+          conn.transferMode = TransferMode.passive;
+        } catch (_) {}
+      }
+      return conn;
+    }
+    // jeśli nie ma dostępnych, czekaj na zwolnienie
+    final completer = Completer<FTPConnect>();
+    _waiters.add(completer);
+    return completer.future;
+  }
+
+  void release(FTPConnect conn) {
+    if (_inUse.remove(conn)) {
+      if (_waiters.isNotEmpty) {
+        final waiter = _waiters.removeAt(0);
+        _inUse.add(conn);
+        waiter.complete(conn);
+      } else {
+        _available.add(conn);
+      }
+    }
+  }
+
+  int get inUseCount => _inUse.length;
+
+  Future<void> close() async {
+    for (final conn in _available) {
+      try {
+        await conn.disconnect();
+      } catch (_) {}
+    }
+    for (final conn in _inUse) {
+      try {
+        await conn.disconnect();
+      } catch (_) {}
+    }
+    _available.clear();
+    _inUse.clear();
+    _initialized = false;
+  }
+}

@@ -1,0 +1,38 @@
+name: server_updater
+description:  A new Flutter project.
+publish_to: 'none'
+version: 1.0.0+1
+environment:
+  sdk: ^3.9.2
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  path: ^1.8.3
+  window_manager: ^0.4.2
+  dartssh2: ^2.16.0
+  ftpconnect: ^2.0.10
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
+  image: ^4.0.17
+flutter_icons:
+  android: false
+  ios: false
+  windows:
+    generate: true
+    image_path: assets/images/logo.png
+    app_icon_path: windows/runner/resources/app_icon.ico
+  image_path: assets/images/logo.png
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/ftp.json
+    - assets/images/logo.png
+  fonts:
+    - family: Norse
+      fonts:
+        - asset: assets/fonts/Norse.otf
+        - asset: assets/fonts/Norsebold.otf

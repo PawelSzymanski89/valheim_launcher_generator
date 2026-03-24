@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'generator/config_manager.dart';
 import 'generator/wizard_page.dart';
+import 'utils/lang_provider.dart';
 
 void main() {
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => GeneratorProvider(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => GeneratorProvider()),
+        ChangeNotifierProvider(create: (_) => LangProvider()),
+      ],
       child: const ValheimGeneratorApp(),
     ),
   );
