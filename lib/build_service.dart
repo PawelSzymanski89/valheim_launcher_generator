@@ -59,6 +59,46 @@ class BuildService {
   String get _outputRoot => p.join(_generatorRoot, 'output');
   String get _profilesRoot => p.join(_generatorRoot, 'profiles');
 
+  /// On Windows, MSBuild fails when paths exceed 260 chars.
+  /// We create a junction from C:\vlg\{l|p|u} → actual module path.
+  /// No files are copied — it's a filesystem pointer.
+  Future<String> _junctionWorkDir(String modDir, String shortAlias) async {
+    if (!Platform.isWindows) return modDir;
+
+    final junctionPath = p.join(r'C:\vlg', shortAlias);
+
+    try {
+      await Directory(r'C:\vlg').create(recursive: true);
+
+      // Remove stale junction if exists
+      final jDir = Directory(junctionPath);
+      if (await jDir.exists()) {
+        await Process.run('rmdir', [junctionPath], runInShell: true);
+      }
+
+      final result = await Process.run(
+        'cmd', ['/c', 'mklink', '/J', junctionPath, modDir],
+        runInShell: false,
+      );
+
+      if (result.exitCode == 0) {
+        onLog('  🔗 Junction: $junctionPath → $modDir');
+        return junctionPath;
+      }
+      onLog('  ⚠️ Nie udało się utworzyć junction (${result.stderr}), używam pełnej ścieżki');
+    } catch (e) {
+      onLog('  ⚠️ Junction error: $e, używam pełnej ścieżki');
+    }
+    return modDir; // fallback to original
+  }
+
+  Future<void> _removeJunction(String junctionPath) async {
+    if (!Platform.isWindows) return;
+    try {
+      await Process.run('rmdir', [junctionPath], runInShell: true);
+    } catch (_) {}
+  }
+
   /// Main entry point — runs the full build pipeline.
   /// Returns list of results for each module.
   Future<List<ModuleBuildResult>> run() async {
@@ -85,6 +125,7 @@ class BuildService {
       _ModuleSpec(
         name: 'launcher',
         dir: p.join(_modulesRoot, 'launcher_module'),
+        shortAlias: 'l',
         exeName: 'server_launcher',
         outputAs: '${config.serverName} Launcher',
         weight: 0.25,
@@ -92,6 +133,7 @@ class BuildService {
       _ModuleSpec(
         name: 'patcher',
         dir: p.join(_modulesRoot, 'patcher_module'),
+        shortAlias: 'p',
         exeName: 'server_patcher',
         outputAs: '${config.serverName} Patcher',
         weight: 0.25,
@@ -99,6 +141,7 @@ class BuildService {
       _ModuleSpec(
         name: 'updater',
         dir: p.join(_modulesRoot, 'updater_module'),
+        shortAlias: 'u',
         exeName: 'server_updater',
         outputAs: '${config.serverName} Updater',
         weight: 0.25,
@@ -115,6 +158,9 @@ class BuildService {
         onLog('  ✅ ${mod.outputAs}.exe → ${result.exePath}');
       } else {
         onLog('  ❌ Błąd ${mod.name}: ${result.error}');
+        // Stop immediately on first failure
+        onProgress(1.0);
+        return results;
       }
     }
 
@@ -143,6 +189,9 @@ class BuildService {
 
   Future<ModuleBuildResult> _buildModule(
       _ModuleSpec mod, String encryptedPayload) async {
+    // Create junction to short path to avoid Windows 260-char path limit
+    final workDir = await _junctionWorkDir(mod.dir, mod.shortAlias);
+    final junctionCreated = workDir != mod.dir;
     try {
       final modDir = Directory(mod.dir);
       if (!await modDir.exists()) {
@@ -153,23 +202,21 @@ class BuildService {
         );
       }
 
-      // 1. Write config_encrypted.json to module assets
+      // 1. Write config_encrypted.json to module assets (always to real path)
       onLog('  📝 Wstrzykuję config do ${mod.name}/assets/...');
       final assetsDir = Directory(p.join(mod.dir, 'assets'));
       await assetsDir.create(recursive: true);
       await File(p.join(assetsDir.path, 'config_encrypted.json'))
           .writeAsString(encryptedPayload);
 
-      // 2. Write ftp_preview.json (plain preview, not used at runtime)
+      // 2. Write ftp_preview.json
       await File(p.join(assetsDir.path, 'ftp_preview.json'))
           .writeAsString(const JsonEncoder.withIndent('  ')
               .convert(config.toFtpJson()));
 
-      // 3. Ensure assets entry in pubspec (silent — rely on existing pubspec)
-
-      // 4. Run flutter build windows
+      // 3. Run flutter build windows from workDir (short path via junction)
       onLog('  🔨 flutter build windows...');
-      final buildResult = await _runFlutterBuild(mod);
+      final buildResult = await _runFlutterBuild(workDir, mod);
       if (!buildResult.success) {
         return ModuleBuildResult(
           moduleName: mod.name,
@@ -178,7 +225,7 @@ class BuildService {
         );
       }
 
-      // 5. Copy exe to output
+      // 4. Copy exe to output
       final exePath = await _copyOutput(mod);
       return ModuleBuildResult(
         moduleName: mod.name,
@@ -191,12 +238,14 @@ class BuildService {
         success: false,
         error: '$e',
       );
+    } finally {
+      if (junctionCreated) await _removeJunction(workDir);
     }
   }
 
   Future<({bool success, String? error})> _runFlutterBuild(
-      _ModuleSpec mod) async {
-    // Log file next to module dir for easy inspection
+      String buildDir, _ModuleSpec mod) async {
+    // Log file always goes to real (non-junction) path
     final logFile = File(p.join(mod.dir, '..', 'build_${mod.name}.log'));
     final logSink = logFile.openWrite();
     final allLines = <String>[];
@@ -205,7 +254,7 @@ class BuildService {
       final process = await Process.start(
         'flutter',
         ['build', 'windows', '--release'],
-        workingDirectory: mod.dir,
+        workingDirectory: buildDir,   // ← short path via junction
         runInShell: true,
       );
 
@@ -301,12 +350,14 @@ class BuildService {
 class _ModuleSpec {
   final String name;
   final String dir;
+  final String shortAlias; // used for C:\vlg\{alias} junction
   final String exeName;
   final String outputAs;
   final double weight;
   const _ModuleSpec({
     required this.name,
     required this.dir,
+    required this.shortAlias,
     required this.exeName,
     required this.outputAs,
     required this.weight,
