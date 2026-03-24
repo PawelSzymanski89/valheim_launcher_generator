@@ -1,5 +1,3 @@
-import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'config_manager.dart';
@@ -7,8 +5,8 @@ import 'steps/step1_branding.dart';
 import 'steps/step2_server.dart';
 import 'steps/step3_ftp.dart';
 import 'steps/step4_salt.dart';
-import '../utils/shared_salt.dart';
 import '../utils/lang_provider.dart';
+import '../utils/profile_service.dart';
 import '../build_service.dart';
 
 class WizardPage extends StatelessWidget {
@@ -63,7 +61,7 @@ class WizardPage extends StatelessWidget {
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(40),
-                  child: _buildStepContent(step),
+                  child: _buildStepContent(step, prov.profileVersion),
                 ),
               ),
               _BottomBar(step: step, prov: prov, lang: lang),
@@ -74,12 +72,12 @@ class WizardPage extends StatelessWidget {
     );
   }
 
-  Widget _buildStepContent(int step) {
+  Widget _buildStepContent(int step, int version) {
     return switch (step) {
-      0 => const Step1Branding(),
-      1 => const Step2Server(),
-      2 => const Step3Ftp(),
-      3 => const Step4Salt(),
+      0 => Step1Branding(key: ValueKey('s1-$version')),
+      1 => Step2Server(key: ValueKey('s2-$version')),
+      2 => Step3Ftp(key: ValueKey('s3-$version')),
+      3 => Step4Salt(key: ValueKey('s4-$version')),
       _ => const SizedBox.shrink(),
     };
   }
@@ -133,6 +131,12 @@ class _Sidebar extends StatelessWidget {
           )),
 
           const Spacer(),
+
+          // Profiles
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+            child: _ProfileButton(),
+          ),
 
           // Contact
           Padding(
@@ -535,6 +539,165 @@ class _GridPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_) => false;
+}
+
+// ── Profile Button ────────────────────────────────────────────────
+class _ProfileButton extends StatelessWidget {
+  const _ProfileButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: TextButton.icon(
+        icon: const Icon(Icons.folder_open_outlined, size: 16, color: Color(0xFF8B6914)),
+        label: const Text(
+          'Profile',
+          style: TextStyle(
+            fontFamily: 'Norse', fontSize: 13,
+            color: Color(0xFF8B6914), letterSpacing: 1,
+          ),
+        ),
+        style: TextButton.styleFrom(
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          overlayColor: const Color(0xFF2A2010),
+        ),
+        onPressed: () => showDialog(
+          context: context,
+          builder: (_) => _ProfileDialog(
+            onLoad: (profile) {
+              context.read<GeneratorProvider>().loadFromProfile(profile);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Profile Dialog ────────────────────────────────────────────────
+class _ProfileDialog extends StatefulWidget {
+  const _ProfileDialog({required this.onLoad});
+  final void Function(ServerProfile) onLoad;
+
+  @override
+  State<_ProfileDialog> createState() => _ProfileDialogState();
+}
+
+class _ProfileDialogState extends State<_ProfileDialog> {
+  late Future<List<ServerProfile>> _profilesFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _profilesFuture = ProfileService.loadAll();
+  }
+
+  void _reload() => setState(() => _profilesFuture = ProfileService.loadAll());
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF12100A),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: Color(0xFF3A2E1A)),
+      ),
+      child: SizedBox(
+        width: 480,
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                const Icon(Icons.folder_open_outlined, color: Color(0xFFD4A017), size: 22),
+                const SizedBox(width: 12),
+                const Text('Profile', style: TextStyle(
+                  fontFamily: 'Norse', fontSize: 22, fontWeight: FontWeight.w700,
+                  color: Color(0xFFD4A017), letterSpacing: 2,
+                )),
+              ]),
+              const SizedBox(height: 8),
+              Container(height: 1, color: const Color(0xFF2A2010)),
+              const SizedBox(height: 20),
+              FutureBuilder<List<ServerProfile>>(
+                future: _profilesFuture,
+                builder: (ctx, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final profiles = snap.data ?? [];
+                  if (profiles.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 20),
+                      child: Text(
+                        'Brak zapisanych profili.\nProfile są zapisywane automatycznie po generowaniu.',
+                        style: TextStyle(color: Colors.white38, fontSize: 13, height: 1.6),
+                      ),
+                    );
+                  }
+                  return ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 320),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: profiles.length,
+                      separatorBuilder: (_, _) => const Divider(color: Color(0xFF2A2010), height: 1),
+                      itemBuilder: (ctx, i) {
+                        final p = profiles[i];
+                        return ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
+                          title: Text(p.serverName, style: const TextStyle(
+                            fontFamily: 'Norse', color: Color(0xFFD4A017), fontSize: 15,
+                          )),
+                          subtitle: Text(
+                            '${p.ftpHost}:${p.ftpPort}  ·  ${p.serverAddr}',
+                            style: const TextStyle(color: Colors.white38, fontSize: 11, fontFamily: 'Norse'),
+                          ),
+                          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                            TextButton(
+                              onPressed: () {
+                                widget.onLoad(p);
+                                Navigator.of(context).pop();
+                              },
+                              child: const Text('Wczytaj', style: TextStyle(
+                                fontFamily: 'Norse', color: Color(0xFFD4A017), fontSize: 12,
+                              )),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, size: 16, color: Colors.white24),
+                              tooltip: 'Usuń',
+                              onPressed: () async {
+                                await ProfileService.delete(p.serverName);
+                                _reload();
+                              },
+                            ),
+                          ]),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 20),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Zamknij', style: TextStyle(
+                    fontFamily: 'Norse', color: Color(0xFF8B6914), letterSpacing: 1,
+                  )),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ── Contact Button ────────────────────────────────────────────────

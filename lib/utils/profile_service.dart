@@ -1,0 +1,94 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:path/path.dart' as p;
+
+class ServerProfile {
+  final String serverName;
+  final String serverAddr;
+  final String ftpHost;
+  final int ftpPort;
+  final String ftpUser;
+  final String backgroundPath;
+  final DateTime savedAt;
+
+  const ServerProfile({
+    required this.serverName,
+    required this.serverAddr,
+    required this.ftpHost,
+    required this.ftpPort,
+    required this.ftpUser,
+    required this.backgroundPath,
+    required this.savedAt,
+  });
+
+  factory ServerProfile.fromJson(Map<String, dynamic> j) => ServerProfile(
+        serverName: j['serverName'] as String? ?? '',
+        serverAddr: j['serverAddr'] as String? ?? '',
+        ftpHost: j['ftpHost'] as String? ?? '',
+        ftpPort: (j['ftpPort'] as num?)?.toInt() ?? 2022,
+        ftpUser: j['ftpUser'] as String? ?? '',
+        backgroundPath: j['backgroundPath'] as String? ?? '',
+        savedAt: DateTime.tryParse(j['savedAt'] as String? ?? '') ?? DateTime.now(),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'serverName': serverName,
+        'serverAddr': serverAddr,
+        'ftpHost': ftpHost,
+        'ftpPort': ftpPort,
+        'ftpUser': ftpUser,
+        'backgroundPath': backgroundPath,
+        'savedAt': savedAt.toIso8601String(),
+      };
+}
+
+class ProfileService {
+  static String get _profilesDir {
+    // Same heuristic as BuildService._generatorRoot
+    final exe = Platform.resolvedExecutable;
+    Directory dir = File(exe).parent;
+    for (int i = 0; i < 6; i++) {
+      final pubspec = File(p.join(dir.path, 'pubspec.yaml'));
+      if (pubspec.existsSync() &&
+          pubspec.readAsStringSync().contains('valheim_launcher_generator')) {
+        return p.join(dir.path, 'profiles');
+      }
+      dir = dir.parent;
+    }
+    return p.join(Directory.current.path, 'profiles');
+  }
+
+  /// Returns all saved profiles sorted by savedAt descending.
+  static Future<List<ServerProfile>> loadAll() async {
+    final dir = Directory(_profilesDir);
+    if (!await dir.exists()) return [];
+    final profiles = <ServerProfile>[];
+    await for (final entity in dir.list()) {
+      if (entity is File && entity.path.endsWith('.json')) {
+        try {
+          final raw = await entity.readAsString();
+          final j = jsonDecode(raw) as Map<String, dynamic>;
+          profiles.add(ServerProfile.fromJson(j));
+        } catch (_) {}
+      }
+    }
+    profiles.sort((a, b) => b.savedAt.compareTo(a.savedAt));
+    return profiles;
+  }
+
+  /// Saves or overwrites a profile for the given server name.
+  static Future<void> save(ServerProfile profile) async {
+    final dir = Directory(_profilesDir);
+    await dir.create(recursive: true);
+    final safeName = profile.serverName.replaceAll(RegExp(r'[^\w\s-]'), '_');
+    final file = File(p.join(dir.path, '$safeName.json'));
+    await file.writeAsString(jsonEncode(profile.toJson()));
+  }
+
+  /// Deletes a profile by server name.
+  static Future<void> delete(String serverName) async {
+    final safeName = serverName.replaceAll(RegExp(r'[^\w\s-]'), '_');
+    final file = File(p.join(_profilesDir, '$safeName.json'));
+    if (await file.exists()) await file.delete();
+  }
+}

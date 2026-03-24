@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../utils/crypto_service.dart';
+import '../utils/profile_service.dart';
 
 /// Model pełnej konfiguracji generatora.
 class GeneratorConfig {
@@ -68,6 +69,7 @@ class GeneratorProvider extends ChangeNotifier {
   final config = GeneratorConfig();
   int currentStep = 0;
   bool isGenerating = false;
+  int profileVersion = 0; // incremented on profile load → forces step widgets to re-init controllers
   String? lastError;
   String? outputPath;
 
@@ -100,6 +102,20 @@ class GeneratorProvider extends ChangeNotifier {
 
   void setError(String? e) {
     lastError = e;
+    notifyListeners();
+  }
+
+  /// Loads non-sensitive fields from a profile into the config.
+  /// Passwords and salt are intentionally NOT stored in profiles.
+  void loadFromProfile(ServerProfile profile) {
+    config.serverName = profile.serverName;
+    config.serverAddr = profile.serverAddr;
+    config.ftpHost = profile.ftpHost;
+    config.ftpPort = profile.ftpPort;
+    config.ftpUser = profile.ftpUser;
+    config.backgroundPath = profile.backgroundPath;
+    profileVersion++; // triggers step widget rebuild via ValueKey
+    currentStep = 0;
     notifyListeners();
   }
 }

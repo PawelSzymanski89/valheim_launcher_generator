@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'generator/config_manager.dart';
 import 'utils/shared_salt.dart';
+import 'utils/profile_service.dart';
 
 /// Result of a single module build.
 class ModuleBuildResult {
@@ -123,21 +124,15 @@ class BuildService {
 
   Future<void> _saveProfile(String encryptedPayload) async {
     try {
-      final profileDir = Directory(_profilesRoot);
-      await profileDir.create(recursive: true);
-      final safeName = config.serverName.replaceAll(RegExp(r'[^\w\s-]'), '_');
-      final profileFile = File(p.join(_profilesRoot, '$safeName.json'));
-      final profileData = jsonEncode({
-        'serverName': config.serverName,
-        'serverAddr': config.serverAddr,
-        'ftpHost': config.ftpHost,
-        'ftpPort': config.ftpPort,
-        'ftpUser': config.ftpUser,
-        'createdAt': DateTime.now().toIso8601String(),
-        // NOTE: sensitive fields (ftpPassword, serverPassword, salt) are NOT stored in profile
-        'encryptedConfig': encryptedPayload,
-      });
-      await profileFile.writeAsString(profileData);
+      await ProfileService.save(ServerProfile(
+        serverName: config.serverName,
+        serverAddr: config.serverAddr,
+        ftpHost: config.ftpHost,
+        ftpPort: config.ftpPort,
+        ftpUser: config.ftpUser,
+        backgroundPath: config.backgroundPath,
+        savedAt: DateTime.now(),
+      ));
     } catch (e) {
       onLog('  ⚠️ Nie udało się zapisać profilu: $e');
     }
