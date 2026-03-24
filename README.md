@@ -2,7 +2,8 @@
 
 # ⚔️ Valheim Launcher Generator
 
-<kbd>[🇬🇧 English](#-english-version)</kbd> &nbsp;|&nbsp; <kbd>[🇵🇱 Polski](#-wersja-polska)</kbd>
+[![🇬🇧 English](https://img.shields.io/badge/🇬🇧-English-0078D4?style=for-the-badge)](#-english-version)
+[![🇵🇱 Polski](https://img.shields.io/badge/🇵🇱-Polski-DC143C?style=for-the-badge)](#-wersja-polska)
 
 </div>
 
