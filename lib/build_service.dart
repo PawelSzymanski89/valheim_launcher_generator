@@ -241,30 +241,34 @@ class BuildService {
 
   Future<String> _copyOutput(_ModuleSpec mod) async {
     // Built exe is at <modDir>/build/windows/x64/runner/Release/<exeName>.exe
-    final builtExe = File(p.join(
+    final releaseDir = Directory(p.join(
       mod.dir,
       'build',
       'windows',
       'x64',
       'runner',
       'Release',
-      '${mod.exeName}.exe',
     ));
 
+    final builtExe = File(p.join(releaseDir.path, '${mod.exeName}.exe'));
     if (!await builtExe.exists()) {
       throw 'Nie znaleziono zbudowanego exe: ${builtExe.path}';
     }
 
-    final outDir = Directory(p.join(_outputRoot, config.serverName));
+    // Each module gets its OWN subfolder to avoid data/ DLL conflicts:
+    //   output/{serverName}/{ModuleName}/
+    //     ├── {ServerName} Launcher.exe   ← renamed
+    //     ├── flutter_windows.dll
+    //     └── data/                       ← flutter assets
+    final outDir = Directory(p.join(_outputRoot, config.serverName, mod.outputAs));
     await outDir.create(recursive: true);
 
+    // Copy entire Release folder first (DLLs + data/)
+    await _copyDirContents(releaseDir, outDir, skipFiles: ['${mod.exeName}.exe']);
+
+    // Then copy renamed exe
     final destExe = File(p.join(outDir.path, '${mod.outputAs}.exe'));
     await builtExe.copy(destExe.path);
-
-    // Also copy the entire Release folder (dlls, data/) alongside the renamed exe
-    final releaseDir =
-        Directory(p.join(mod.dir, 'build', 'windows', 'x64', 'runner', 'Release'));
-    await _copyDirContents(releaseDir, outDir, skipFiles: ['${mod.exeName}.exe']);
 
     return destExe.path;
   }
