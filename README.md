@@ -172,6 +172,15 @@ Pull requests welcome. For major changes, open an issue first.
 
 ---
 
+## Commercial & Custom Orders
+
+Need a custom-branded launcher suite for your server or community?
+
+📧 **pawel@howtodev.it**  
+🐙 **[github.com/PawelSzymanski89](https://github.com/PawelSzymanski89)**
+
+---
+
 ## License
 
 MIT © 2024 Paweł Szymański

@@ -134,6 +134,12 @@ class _Sidebar extends StatelessWidget {
 
           const Spacer(),
 
+          // Contact
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+            child: _ContactButton(),
+          ),
+
           // Lang toggle
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
@@ -529,4 +535,153 @@ class _GridPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_) => false;
+}
+
+// ── Contact Button ────────────────────────────────────────────────
+class _ContactButton extends StatelessWidget {
+  const _ContactButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: TextButton.icon(
+        icon: const Icon(Icons.mail_outline, size: 16, color: Color(0xFF8B6914)),
+        label: const Text(
+          'Kontakt',
+          style: TextStyle(
+            fontFamily: 'Norse',
+            fontSize: 13,
+            color: Color(0xFF8B6914),
+            letterSpacing: 1,
+          ),
+        ),
+        style: TextButton.styleFrom(
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          overlayColor: const Color(0xFF2A2010),
+        ),
+        onPressed: () => showDialog(
+          context: context,
+          builder: (_) => const _ContactDialog(),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Contact Dialog ────────────────────────────────────────────────
+class _ContactDialog extends StatelessWidget {
+  const _ContactDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF12100A),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: Color(0xFF3A2E1A)),
+      ),
+      child: SizedBox(
+        width: 420,
+        child: Padding(
+          padding: const EdgeInsets.all(36),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(children: [
+                const Icon(Icons.mail_outline, color: Color(0xFFD4A017), size: 22),
+                const SizedBox(width: 12),
+                const Text(
+                  'Kontakt',
+                  style: TextStyle(
+                    fontFamily: 'Norse',
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFFD4A017),
+                    letterSpacing: 2,
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 8),
+              Container(height: 1, color: const Color(0xFF2A2010)),
+              const SizedBox(height: 24),
+
+              // Description
+              const Text(
+                'Zainteresowany wersją komercyjną lub\nwłasnym launcherem na zamówienie?',
+                style: TextStyle(
+                  fontFamily: 'Norse',
+                  fontSize: 15,
+                  color: Colors.white70,
+                  height: 1.6,
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Email row
+              _ContactRow(
+                icon: Icons.alternate_email,
+                label: 'E-mail',
+                value: 'pawel@howtodev.it',
+              ),
+              const SizedBox(height: 12),
+              _ContactRow(
+                icon: Icons.code,
+                label: 'GitHub',
+                value: 'github.com/PawelSzymanski89',
+              ),
+              const SizedBox(height: 32),
+
+              // Close button
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text(
+                    'Zamknij',
+                    style: TextStyle(
+                      fontFamily: 'Norse',
+                      color: Color(0xFF8B6914),
+                      letterSpacing: 1,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ContactRow extends StatelessWidget {
+  const _ContactRow({required this.icon, required this.label, required this.value});
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(children: [
+      Icon(icon, size: 16, color: const Color(0xFF8B6914)),
+      const SizedBox(width: 10),
+      Text(
+        '$label: ',
+        style: const TextStyle(fontFamily: 'Norse', fontSize: 13, color: Colors.white38),
+      ),
+      SelectableText(
+        value,
+        style: const TextStyle(
+          fontFamily: 'Norse',
+          fontSize: 13,
+          color: Color(0xFFD4A017),
+          letterSpacing: 0.5,
+        ),
+      ),
+    ]);
+  }
 }
