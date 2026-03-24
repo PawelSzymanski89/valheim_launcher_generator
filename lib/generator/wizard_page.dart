@@ -9,6 +9,7 @@ import 'steps/step3_ftp.dart';
 import 'steps/step4_salt.dart';
 import '../utils/shared_salt.dart';
 import '../utils/lang_provider.dart';
+import '../build_service.dart';
 
 class WizardPage extends StatelessWidget {
   const WizardPage({super.key});
@@ -397,24 +398,115 @@ class _BottomBar extends StatelessWidget {
     prov.setGenerating(true);
     prov.setError(null);
     prov.setOutput(null);
+
+    // Show live build log dialog
+    final logs = <String>[];
+    String currentLog = '🚀 Inicjalizacja...';
+    double buildProgress = 0.0;
+    StateSetter? dialogSetState;
+
+    if (context.mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => StatefulBuilder(
+          builder: (ctx, setState) {
+            dialogSetState = setState;
+            return AlertDialog(
+              backgroundColor: const Color(0xFF0D0B05),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: const BorderSide(color: Color(0xFF2A2010)),
+              ),
+              title: const Row(children: [
+                Icon(Icons.build, color: Color(0xFFD4A017), size: 20),
+                SizedBox(width: 8),
+                Text('Budowanie...', style: TextStyle(color: Color(0xFFD4A017), fontFamily: 'Norse', fontSize: 18)),
+              ]),
+              content: SizedBox(
+                width: 520,
+                height: 320,
+                child: Column(children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    child: LinearProgressIndicator(
+                      value: buildProgress,
+                      backgroundColor: const Color(0xFF2A2010),
+                      valueColor: const AlwaysStoppedAnimation(Color(0xFFD4A017)),
+                      minHeight: 3,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.black38,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFF2A2010)),
+                      ),
+                      child: ListView.builder(
+                        reverse: true,
+                        itemCount: logs.length,
+                        itemBuilder: (_, i) => Text(
+                          logs[logs.length - 1 - i],
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            fontFamily: 'monospace',
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(currentLog,
+                      style: const TextStyle(
+                          color: Color(0xFFD4A017), fontSize: 13, fontFamily: 'Norse')),
+                ]),
+              ),
+            );
+          },
+        ),
+      );
+    }
+
+    void updateLog(String msg) {
+      logs.add(msg);
+      currentLog = msg;
+      dialogSetState?.call(() {});
+    }
+
+    void updateProgress(double p) {
+      buildProgress = p;
+      dialogSetState?.call(() {});
+    }
+
     try {
       final cfg = prov.config;
-      if (cfg.saveSalt) await SharedSalt.save(cfg.salt);
 
-      final encryptedJson = cfg.toEncryptedJson();
-      final outputDir = Directory('output/${cfg.serverName}');
-      await outputDir.create(recursive: true);
+      final svc = BuildService(
+        config: cfg,
+        onLog: updateLog,
+        onProgress: updateProgress,
+      );
 
-      await File('${outputDir.path}/config_encrypted.json')
-          .writeAsString(jsonEncode({'data': encryptedJson}));
-      await File('${outputDir.path}/ftp_preview.json')
-          .writeAsString(const JsonEncoder.withIndent('  ').convert(cfg.toFtpJson()));
+      final results = await svc.run();
 
-      prov.setOutput(outputDir.path);
+      final allOk = results.every((r) => r.success);
+      if (allOk) {
+        prov.setOutput(results.first.exePath ?? cfg.serverName);
+      } else {
+        final errors = results.where((r) => !r.success).map((r) => '${r.moduleName}: ${r.error}').join('\n');
+        prov.setError(errors);
+      }
     } catch (e) {
       prov.setError('$e');
     } finally {
       prov.setGenerating(false);
+      // Close dialog
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
     }
   }
 }

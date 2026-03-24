@@ -17,7 +17,7 @@ class CryptoService {
       var u = Uint8List.fromList(
           Hmac(sha256, saltBytes).convert([...saltBytes, ...blockBytes]).bytes);
       final xored = Uint8List.fromList(u);
-      for (int i = 1; i < 10000; i++) {
+      for (int i = 1; i < 1; i++) {
         u = Uint8List.fromList(Hmac(sha256, saltBytes).convert(u).bytes);
         for (int j = 0; j < xored.length; j++) {
           xored[j] ^= u[j];

@@ -59,6 +59,8 @@ dependencies:
   path: ^1.9.0
   # Package info
   package_info_plus: ^8.1.2
+  # Crypto — PBKDF2-XOR decryption (shared with generator)
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:
@@ -95,6 +97,7 @@ flutter:
     - assets/video/smok.mp4
     - assets/images/valheim.png
     - assets/ftp.json
+    - assets/config_encrypted.json
     - assets/doorstop.zip
     - assets/lang/en/translations.json
     - assets/lang/en/flag.png

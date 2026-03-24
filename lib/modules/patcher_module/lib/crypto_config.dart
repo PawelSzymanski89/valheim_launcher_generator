@@ -1,0 +1,94 @@
+import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:shared_preferences/shared_preferences.dart';
+
+const _saltKey = 'vlg_salt_v1';
+
+Future<String?> loadSalt() async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getString(_saltKey);
+}
+
+String cryptoDecrypt(String ciphertext, String salt) {
+  final combined = base64.decode(ciphertext);
+  final iv = combined.sublist(0, 16);
+  final encrypted = combined.sublist(16);
+  final saltWithIv = '$salt-${base64.encode(iv)}';
+  final keyStream = _keyStream(saltWithIv, encrypted.length);
+  final decrypted = Uint8List(encrypted.length);
+  for (int i = 0; i < encrypted.length; i++) {
+    decrypted[i] = encrypted[i] ^ keyStream[i];
+  }
+  return utf8.decode(decrypted);
+}
+
+Uint8List _keyStream(String salt, int length) {
+  final saltBytes = utf8.encode(salt);
+  final result = <int>[];
+  int block = 1;
+  while (result.length < length) {
+    final blockBytes = Uint8List(4)
+      ..buffer.asByteData().setUint32(0, block, Endian.big);
+    var u = Uint8List.fromList(
+        Hmac(sha256, saltBytes).convert([...saltBytes, ...blockBytes]).bytes);
+    final xored = Uint8List.fromList(u);
+    for (int i = 1; i < 1; i++) {
+      u = Uint8List.fromList(Hmac(sha256, saltBytes).convert(u).bytes);
+      for (int j = 0; j < xored.length; j++) {
+        xored[j] ^= u[j];
+      }
+    }
+    result.addAll(xored);
+    block++;
+  }
+  return Uint8List.fromList(result.sublist(0, length));
+}
+
+class DecryptedConfig {
+  final String serverName;
+  final String serverAddr;
+  final String serverPassword;
+  final String ftpHost;
+  final int ftpPort;
+  final String ftpUser;
+  final String ftpPassword;
+
+  const DecryptedConfig({
+    required this.serverName,
+    required this.serverAddr,
+    required this.serverPassword,
+    required this.ftpHost,
+    required this.ftpPort,
+    required this.ftpUser,
+    required this.ftpPassword,
+  });
+
+  factory DecryptedConfig.fromJson(Map<String, dynamic> j) => DecryptedConfig(
+        serverName: j['serverName'] as String? ?? '',
+        serverAddr: j['serverAddr'] as String? ?? '',
+        serverPassword: j['serverPassword'] as String? ?? '',
+        ftpHost: j['ftpHost'] as String? ?? '',
+        ftpPort: (j['ftpPort'] as num?)?.toInt() ?? 21,
+        ftpUser: j['ftpUser'] as String? ?? '',
+        ftpPassword: j['ftpPassword'] as String? ?? '',
+      );
+}
+
+Future<DecryptedConfig?> loadDecryptedConfig() async {
+  try {
+    final salt = await loadSalt();
+    if (salt == null || salt.isEmpty) return null;
+
+    final raw = await rootBundle.loadString('assets/config_encrypted.json');
+    final map = json.decode(raw) as Map<String, dynamic>;
+    final ciphertext = map['data'] as String;
+    final plainJson = cryptoDecrypt(ciphertext, salt);
+    final decoded = json.decode(plainJson) as Map<String, dynamic>;
+    return DecryptedConfig.fromJson(decoded);
+  } catch (e) {
+    return null;
+  }
+}

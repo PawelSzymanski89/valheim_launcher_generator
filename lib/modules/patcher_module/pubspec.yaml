@@ -1,6 +1,6 @@
 name: server_patcher
-description: "A new Flutter project."
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+description: "Valheim Launcher Patcher — patcher wygenerowany przez Valheim Launcher Generator."
+publish_to: 'none'
 
 version: 1.0.0+1
 
@@ -13,8 +13,9 @@ dependencies:
 
   cupertino_icons: ^1.0.8
   ftpconnect: 2.0.10
-  crypto: ^3.0.2
-  shared_preferences: ^2.0.15
+  # Crypto — PBKDF2-XOR decryption (shared with generator)
+  crypto: ^3.0.3
+  shared_preferences: ^2.3.2
   dartssh2: ^2.16.0
 
 dev_dependencies:
@@ -29,6 +30,7 @@ flutter:
 
   assets:
     - assets/ftp.json
+    - assets/config_encrypted.json
     - assets/patch_config.json
     - assets/img.png
 
@@ -41,4 +43,4 @@ flutter_launcher_icons:
   windows:
     generate: true
     image_path: "assets/img.png"
-    icon_size: 48 # min:48, max:256, default: 48
+    icon_size: 48

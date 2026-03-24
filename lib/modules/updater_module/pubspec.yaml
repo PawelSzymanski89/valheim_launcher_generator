@@ -1,5 +1,5 @@
 name: server_updater
-description:  A new Flutter project.
+description: "Valheim Launcher Updater — autoaktualizator wygenerowany przez Valheim Launcher Generator."
 publish_to: 'none'
 version: 1.0.0+1
 environment:
@@ -12,24 +12,27 @@ dependencies:
   window_manager: ^0.4.2
   dartssh2: ^2.16.0
   ftpconnect: ^2.0.10
+  archive: ^3.6.1
+  # Crypto — PBKDF2-XOR decryption (shared with generator)
+  crypto: ^3.0.3
+  shared_preferences: ^2.3.2
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
   flutter_launcher_icons: ^0.14.4
-  image: ^4.0.17
-flutter_icons:
+flutter_launcher_icons:
   android: false
   ios: false
   windows:
     generate: true
     image_path: assets/images/logo.png
-    app_icon_path: windows/runner/resources/app_icon.ico
-  image_path: assets/images/logo.png
+    icon_size: 48
 flutter:
   uses-material-design: true
   assets:
     - assets/ftp.json
+    - assets/config_encrypted.json
     - assets/images/logo.png
   fonts:
     - family: Norse

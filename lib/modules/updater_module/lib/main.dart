@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:ftpconnect/ftpconnect.dart';
 import 'package:dartssh2/dartssh2.dart';
 import 'package:archive/archive.dart';
+import 'crypto_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,7 +21,7 @@ void main() async {
   WindowOptions windowOptions = const WindowOptions(
     center: true,
     skipTaskbar: false,
-    title: 'Aurora Borealis Updater',
+    title: 'Updater',
     // make frameless - remove default controls
     titleBarStyle: TitleBarStyle.hidden,
   );
@@ -52,7 +53,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Aurora Borealis Updater',
+      title: 'Updater',
       theme: ThemeData(
         fontFamily: 'Norse',
         primarySwatch: Colors.blueGrey,
@@ -78,6 +79,8 @@ class _UpdaterPageState extends State<UpdaterPage> {
   int _ftpPort = 21;
   String? _ftpUser;
   String? _ftpPass;
+  String _serverName = 'Updater';
+  String _launcherExeName = 'server_launcher.exe';
 
   // paths
   late final Directory appDir;
@@ -169,13 +172,18 @@ class _UpdaterPageState extends State<UpdaterPage> {
   String? _launcherRemote;
 
   Future<void> _loadFtpConfig() async {
-    final raw = await rootBundle.loadString('assets/ftp.json');
-    final map = json.decode(raw) as Map<String, dynamic>;
-    _ftpHost = map['host'] as String?;
-    _ftpPort = (map['port'] as num?)?.toInt() ?? 21;
-    _ftpUser = map['username'] as String?;
-    _ftpPass = map['password'] as String?;
-    _launcherRemote = map['launcher_remote'] as String?;
+    final cfg = await loadDecryptedConfig();
+    if (cfg == null) {
+      throw 'brak konfiguracji ftp'; // No encrypted config found or failed to load/decrypt
+    }
+
+    _ftpHost = cfg.ftpHost;
+    _ftpPort = cfg.ftpPort;
+    _ftpUser = cfg.ftpUser;
+    _ftpPass = cfg.ftpPassword;
+    _serverName = cfg.serverName.isNotEmpty ? cfg.serverName : 'Updater';
+    _launcherExeName = '${_serverName} Launcher.exe';
+    _launcherRemote = null; // use default path
   }
 
   Future<void> _downloadLauncher() async {
@@ -276,19 +284,37 @@ class _UpdaterPageState extends State<UpdaterPage> {
   }
 
   Future<void> _launchLauncherExe() async {
-    final exePath = p.join(parentDir.path, 'server_launcher.exe'); // Zmieniamy appDir na parentDir
+    final exeName = _launcherExeName;
+    final exePath = p.join(parentDir.path, exeName);
     final exeFile = File(exePath);
     if (!await exeFile.exists()) {
-      // maybe extracted into subfolder, try to find
-      final found = await _findFileRecursive(parentDir, 'server_launcher.exe'); // Zmieniamy appDir na parentDir
+      // Try to find recursively (any *Launcher.exe)
+      final found = await _findFileRecursive(parentDir, exeName);
       if (found != null) {
         await Process.start(found.path, [], mode: ProcessStartMode.detached);
         return;
       }
+      // Last resort — look for any *launcher*.exe
+      final any = await _findLauncherExe(parentDir);
+      if (any != null) {
+        await Process.start(any.path, [], mode: ProcessStartMode.detached);
+        return;
+      }
       throw 'nie znaleziono launcher.exe';
     }
-
     await Process.start(exePath, [], mode: ProcessStartMode.detached);
+  }
+
+  Future<File?> _findLauncherExe(Directory dir) async {
+    try {
+      await for (final entity in dir.list(recursive: true, followLinks: false)) {
+        if (entity is File) {
+          final name = p.basename(entity.path).toLowerCase();
+          if (name.endsWith('.exe') && name.contains('launcher')) return entity;
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<File?> _findFileRecursive(Directory dir, String name) async {
@@ -336,7 +362,7 @@ class _UpdaterPageState extends State<UpdaterPage> {
               child: Row(children: [
                 Image.asset('assets/images/logo.png', height: 28),
                 const SizedBox(width: 10),
-                const Expanded(child: Text('Aurora Borealis Updater', style: TextStyle(color: Colors.white, fontSize: 16))),
+                Expanded(child: Text('$_serverName Updater', style: const TextStyle(color: Colors.white, fontSize: 16))),
                 InkWell(
                   onTap: () => exit(0),
                   child: const Padding(
