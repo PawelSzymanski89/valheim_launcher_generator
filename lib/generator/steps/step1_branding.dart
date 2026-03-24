@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config_manager.dart';
+import '../../utils/lang_provider.dart';
 
 class Step1Branding extends StatefulWidget {
   const Step1Branding({super.key});
@@ -28,23 +29,24 @@ class _Step1BrandingState extends State<Step1Branding> {
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<GeneratorProvider>();
+    final lang = context.watch<LangProvider>();
     final cfg = prov.config;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _label('Nazwa serwera'),
+        _label(lang.t('server_name')),
         const SizedBox(height: 8),
         _field(
           controller: _nameCtrl,
-          hint: 'np. Moja Baza',
+          hint: lang.t('server_name_hint'),
           onChanged: (v) { cfg.serverName = v; prov.notify(); },
         ),
         const SizedBox(height: 4),
         Text(
           _nameCtrl.text.isNotEmpty
-              ? 'Plik wyjściowy: "${_nameCtrl.text} Launcher.exe"'
-              : 'Wprowadź nazwę serwera',
+              ? lang.t('output_label').replaceAll('{name}', _nameCtrl.text)
+              : lang.t('no_name'),
           style: TextStyle(
             color: _nameCtrl.text.isNotEmpty
                 ? Colors.greenAccent.shade400
@@ -53,7 +55,7 @@ class _Step1BrandingState extends State<Step1Branding> {
           ),
         ),
         const SizedBox(height: 28),
-        _label('Tło launchera (PNG / MP4)'),
+        _label(lang.t('background')),
         const SizedBox(height: 8),
         Row(children: [
           Expanded(
@@ -65,7 +67,9 @@ class _Step1BrandingState extends State<Step1Branding> {
                 border: Border.all(color: Colors.white12),
               ),
               child: Text(
-                cfg.backgroundPath.isEmpty ? 'Nie wybrano pliku' : cfg.backgroundPath.split(r'\').last,
+                cfg.backgroundPath.isEmpty
+                    ? lang.t('no_file')
+                    : cfg.backgroundPath.split(r'\').last,
                 style: TextStyle(
                   color: cfg.backgroundPath.isEmpty ? Colors.white38 : Colors.white70,
                   fontSize: 14,
@@ -87,7 +91,7 @@ class _Step1BrandingState extends State<Step1Branding> {
               }
             },
             icon: const Icon(Icons.folder_open, size: 18),
-            label: const Text('Przeglądaj'),
+            label: Text(lang.t('browse')),
             style: OutlinedButton.styleFrom(
               foregroundColor: Colors.white70,
               side: const BorderSide(color: Colors.white24),
@@ -133,4 +137,3 @@ class _Step1BrandingState extends State<Step1Branding> {
         ),
       );
 }
-

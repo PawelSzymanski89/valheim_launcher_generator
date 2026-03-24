@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config_manager.dart';
 import '../../utils/crypto_service.dart';
+import '../../utils/lang_provider.dart';
 
 class Step4Salt extends StatefulWidget {
   const Step4Salt({super.key});
@@ -35,30 +36,28 @@ class _Step4SaltState extends State<Step4Salt> {
   }
 
   void _showWarning() {
+    final lang = context.read<LangProvider>();
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A2E),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: const Row(children: [
-          Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 28),
-          SizedBox(width: 10),
-          Text('Ważne — Nie zgub Salt!',
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        title: Row(children: [
+          const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 28),
+          const SizedBox(width: 10),
+          Text(lang.t('salt_warn_title'),
+              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
         ]),
-        content: const Text(
-          'Salt szyfruje dane FTP i hasło serwera w config.json.\n'
-          'Zapisywany jest w rejestrze Windows.\n\n'
-          '⚠️ UTRATA SALT = launcher/patcher/updater NIE ZALOGUJĄ się.\n'
-          'Brak modów, brak aktualizacji.\n'
-          'Musisz konfigurować od ZERA.',
-          style: TextStyle(color: Colors.white70, height: 1.5),
+        content: Text(
+          lang.t('salt_box_body'),
+          style: const TextStyle(color: Colors.white70, height: 1.5),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Rozumiem', style: TextStyle(color: Colors.blueAccent)),
+            child: Text(lang.t('salt_checkbox'),
+                style: const TextStyle(color: Colors.blueAccent)),
           ),
         ],
       ),
@@ -68,15 +67,15 @@ class _Step4SaltState extends State<Step4Salt> {
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<GeneratorProvider>();
+    final lang = context.watch<LangProvider>();
     final cfg = prov.config;
     final saltLen = _saltCtrl.text.length;
     final saltOk = saltLen >= 30;
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text(
-        '🔐 Salt szyfruje wszystkie hasła w wygenerowanych plikach.\n'
-        'Bez salt nikt nie może uruchomić/zaktualizować launchera.',
-        style: TextStyle(color: Colors.white60, fontSize: 13, height: 1.5),
+      Text(
+        lang.t('salt_intro'),
+        style: const TextStyle(color: Colors.white60, fontSize: 13, height: 1.5),
       ),
       const SizedBox(height: 20),
       Row(children: [
@@ -86,9 +85,9 @@ class _Step4SaltState extends State<Step4Salt> {
             onChanged: (v) { cfg.salt = v; prov.notify(); },
             style: const TextStyle(color: Colors.white, fontFamily: 'monospace', fontSize: 13),
             decoration: InputDecoration(
-              hintText: 'min. 30 znaków',
+              hintText: lang.t('salt_hint'),
               hintStyle: const TextStyle(color: Colors.white38),
-              suffixText: '$saltLen znaków',
+              suffixText: lang.t('salt_chars').replaceAll('{n}', '$saltLen'),
               suffixStyle: TextStyle(
                 color: saltOk ? Colors.greenAccent : Colors.redAccent,
                 fontSize: 12,
@@ -114,7 +113,7 @@ class _Step4SaltState extends State<Step4Salt> {
         ElevatedButton.icon(
           onPressed: _generateSalt,
           icon: const Icon(Icons.auto_awesome, size: 18),
-          label: const Text('Generuj'),
+          label: Text(lang.t('generate_salt')),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.amber.shade800,
             foregroundColor: Colors.white,
@@ -125,8 +124,10 @@ class _Step4SaltState extends State<Step4Salt> {
       if (!saltOk && _saltCtrl.text.isNotEmpty)
         Padding(
           padding: const EdgeInsets.only(top: 6),
-          child: Text('Salt musi mieć min. 30 znaków (${30 - saltLen} brakuje)',
-              style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+          child: Text(
+            lang.t('salt_min_warn').replaceAll('{n}', '${30 - saltLen}'),
+            style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+          ),
         ),
       const SizedBox(height: 24),
       Container(
@@ -137,17 +138,16 @@ class _Step4SaltState extends State<Step4Salt> {
           border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Row(children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 20),
-            SizedBox(width: 8),
-            Text('Zguba Salt = reset konfiguracji',
-                style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
+          Row(children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 20),
+            const SizedBox(width: 8),
+            Text(lang.t('salt_box_title'),
+                style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
           ]),
           const SizedBox(height: 8),
-          const Text(
-            'Salt jest przechowywany w rejestrze Windows. Jeśli go zgubisz, '
-            'launcher, patcher i updater nie będą mogły się połączyć z FTP.',
-            style: TextStyle(color: Colors.white60, fontSize: 12, height: 1.4),
+          Text(
+            lang.t('salt_box_body'),
+            style: const TextStyle(color: Colors.white60, fontSize: 12, height: 1.4),
           ),
           const SizedBox(height: 12),
           Row(children: [
@@ -161,12 +161,11 @@ class _Step4SaltState extends State<Step4Salt> {
               checkColor: Colors.black,
             ),
             const SizedBox(width: 4),
-            const Text('Rozumiem — zapisz salt w rejestrze',
-                style: TextStyle(color: Colors.white70)),
+            Text(lang.t('salt_checkbox'),
+                style: const TextStyle(color: Colors.white70)),
           ]),
         ]),
       ),
     ]);
   }
 }
-

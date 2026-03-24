@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../config_manager.dart';
+import '../../utils/lang_provider.dart';
 
 class Step2Server extends StatefulWidget {
   const Step2Server({super.key});
@@ -33,20 +34,21 @@ class _Step2ServerState extends State<Step2Server> {
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<GeneratorProvider>();
+    final lang = context.watch<LangProvider>();
     final cfg = prov.config;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _label('Adres serwera Valheim'),
+        _label(lang.t('server_addr')),
         const SizedBox(height: 8),
         _field(
           controller: _addrCtrl,
-          hint: '192.168.1.100:2456',
+          hint: lang.t('server_addr_hint'),
           onChanged: (v) { cfg.serverAddr = v; prov.notify(); },
         ),
         const SizedBox(height: 20),
-        _label('Hasło do serwera'),
+        _label(lang.t('server_pass')),
         const SizedBox(height: 8),
         Row(children: [
           Expanded(
@@ -56,7 +58,7 @@ class _Step2ServerState extends State<Step2Server> {
               onChanged: (v) { cfg.serverPassword = v; prov.notify(); },
               style: const TextStyle(color: Colors.white),
               decoration: _inputDeco(
-                hint: 'opcjonalne',
+                hint: lang.t('optional'),
                 suffix: IconButton(
                   icon: Icon(_obscurePass ? Icons.visibility : Icons.visibility_off,
                       color: Colors.white38, size: 20),
@@ -79,7 +81,7 @@ class _Step2ServerState extends State<Step2Server> {
                       if (mounted) setState(() => _copied = false);
                     } : null,
                     icon: const Icon(Icons.copy, size: 16),
-                    label: const Text('Kopiuj'),
+                    label: Text(lang.t('copy')),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white70,
                       side: const BorderSide(color: Colors.white24),
@@ -114,4 +116,3 @@ class _Step2ServerState extends State<Step2Server> {
         decoration: _inputDeco(hint: hint),
       );
 }
-

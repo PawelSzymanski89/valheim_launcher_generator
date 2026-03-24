@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:ftpconnect/ftpconnect.dart';
 import 'package:dartssh2/dartssh2.dart';
 import '../config_manager.dart';
+import '../../utils/lang_provider.dart';
 
 class Step3Ftp extends StatefulWidget {
   const Step3Ftp({super.key});
@@ -64,7 +65,7 @@ class _Step3FtpState extends State<Step3Ftp> {
         setState(() { _testOk = true; _testResult = '✓ FTP OK (port $port)'; });
       }
     } catch (e) {
-      setState(() { _testOk = false; _testResult = '✗ Błąd: $e'; });
+      setState(() { _testOk = false; _testResult = '✗ $e'; });
     } finally {
       setState(() => _testing = false);
     }
@@ -73,18 +74,19 @@ class _Step3FtpState extends State<Step3Ftp> {
   @override
   Widget build(BuildContext context) {
     final prov = context.watch<GeneratorProvider>();
+    final lang = context.watch<LangProvider>();
     final cfg = prov.config;
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _label('Host FTP/SFTP'),
+          _label(lang.t('ftp_host')),
           const SizedBox(height: 8),
-          _field(_hostCtrl, 'np. cybrancee.game.com', (v) { cfg.ftpHost = v; prov.notify(); }),
+          _field(_hostCtrl, lang.t('ftp_host_hint'), (v) { cfg.ftpHost = v; prov.notify(); }),
         ])),
         const SizedBox(width: 16),
         SizedBox(width: 100, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _label('Port'),
+          _label(lang.t('ftp_port')),
           const SizedBox(height: 8),
           _field(_portCtrl, '2022', (v) {
             cfg.ftpPort = int.tryParse(v) ?? 2022;
@@ -93,18 +95,18 @@ class _Step3FtpState extends State<Step3Ftp> {
         ])),
       ]),
       const SizedBox(height: 16),
-      _label('Użytkownik'),
+      _label(lang.t('ftp_user')),
       const SizedBox(height: 8),
-      _field(_userCtrl, 'login', (v) { cfg.ftpUser = v; prov.notify(); }),
+      _field(_userCtrl, lang.t('ftp_user_hint'), (v) { cfg.ftpUser = v; prov.notify(); }),
       const SizedBox(height: 16),
-      _label('Hasło FTP'),
+      _label(lang.t('ftp_pass')),
       const SizedBox(height: 8),
       TextField(
         controller: _passCtrl,
         obscureText: _obscurePass,
         onChanged: (v) { cfg.ftpPassword = v; prov.notify(); },
         style: const TextStyle(color: Colors.white),
-        decoration: _deco('hasło').copyWith(
+        decoration: _deco(lang.t('ftp_pass_hint')).copyWith(
           suffixIcon: IconButton(
             icon: Icon(_obscurePass ? Icons.visibility : Icons.visibility_off,
                 color: Colors.white38, size: 20),
@@ -120,7 +122,7 @@ class _Step3FtpState extends State<Step3Ftp> {
               ? const SizedBox(width: 16, height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
               : const Icon(Icons.wifi_tethering, size: 18),
-          label: Text(_testing ? 'Testowanie...' : 'Testuj połączenie'),
+          label: Text(_testing ? lang.t('testing') : lang.t('test_conn')),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.blueAccent.shade700,
             foregroundColor: Colors.white,
@@ -163,4 +165,3 @@ class _Step3FtpState extends State<Step3Ftp> {
       decoration: _deco(hint),
     );
 }
-
