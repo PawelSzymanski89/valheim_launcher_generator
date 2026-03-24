@@ -110,11 +110,14 @@ class GeneratorProvider extends ChangeNotifier {
   void loadFromProfile(ServerProfile profile) {
     config.serverName = profile.serverName;
     config.serverAddr = profile.serverAddr;
+    config.serverPassword = profile.serverPassword;
     config.ftpHost = profile.ftpHost;
     config.ftpPort = profile.ftpPort;
     config.ftpUser = profile.ftpUser;
+    config.ftpPassword = profile.ftpPassword;
     config.backgroundPath = profile.backgroundPath;
-    profileVersion++; // triggers step widget rebuild via ValueKey
+    if (profile.salt.isNotEmpty) config.salt = profile.salt;
+    profileVersion++;
     currentStep = 0;
     notifyListeners();
   }

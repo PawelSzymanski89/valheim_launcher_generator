@@ -5,39 +5,51 @@ import 'package:path/path.dart' as p;
 class ServerProfile {
   final String serverName;
   final String serverAddr;
+  final String serverPassword;
   final String ftpHost;
   final int ftpPort;
   final String ftpUser;
+  final String ftpPassword;
   final String backgroundPath;
+  final String salt;
   final DateTime savedAt;
 
   const ServerProfile({
     required this.serverName,
     required this.serverAddr,
+    required this.serverPassword,
     required this.ftpHost,
     required this.ftpPort,
     required this.ftpUser,
+    required this.ftpPassword,
     required this.backgroundPath,
+    required this.salt,
     required this.savedAt,
   });
 
   factory ServerProfile.fromJson(Map<String, dynamic> j) => ServerProfile(
         serverName: j['serverName'] as String? ?? '',
         serverAddr: j['serverAddr'] as String? ?? '',
+        serverPassword: j['serverPassword'] as String? ?? '',
         ftpHost: j['ftpHost'] as String? ?? '',
         ftpPort: (j['ftpPort'] as num?)?.toInt() ?? 2022,
         ftpUser: j['ftpUser'] as String? ?? '',
+        ftpPassword: j['ftpPassword'] as String? ?? '',
         backgroundPath: j['backgroundPath'] as String? ?? '',
+        salt: j['salt'] as String? ?? '',
         savedAt: DateTime.tryParse(j['savedAt'] as String? ?? '') ?? DateTime.now(),
       );
 
   Map<String, dynamic> toJson() => {
         'serverName': serverName,
         'serverAddr': serverAddr,
+        'serverPassword': serverPassword,
         'ftpHost': ftpHost,
         'ftpPort': ftpPort,
         'ftpUser': ftpUser,
+        'ftpPassword': ftpPassword,
         'backgroundPath': backgroundPath,
+        'salt': salt,
         'savedAt': savedAt.toIso8601String(),
       };
 }

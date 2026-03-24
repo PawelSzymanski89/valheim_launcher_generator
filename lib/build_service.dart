@@ -127,10 +127,13 @@ class BuildService {
       await ProfileService.save(ServerProfile(
         serverName: config.serverName,
         serverAddr: config.serverAddr,
+        serverPassword: config.serverPassword,
         ftpHost: config.ftpHost,
         ftpPort: config.ftpPort,
         ftpUser: config.ftpUser,
+        ftpPassword: config.ftpPassword,
         backgroundPath: config.backgroundPath,
+        salt: config.salt,
         savedAt: DateTime.now(),
       ));
     } catch (e) {
@@ -193,43 +196,50 @@ class BuildService {
 
   Future<({bool success, String? error})> _runFlutterBuild(
       _ModuleSpec mod) async {
+    // Log file next to module dir for easy inspection
+    final logFile = File(p.join(mod.dir, '..', 'build_${mod.name}.log'));
+    final logSink = logFile.openWrite();
+    final allLines = <String>[];
+
     try {
       final process = await Process.start(
         'flutter',
-        [
-          'build',
-          'windows',
-          '--release',
-        ],
+        ['build', 'windows', '--release'],
         workingDirectory: mod.dir,
         runInShell: true,
       );
 
-      final stdoutBuf = StringBuffer();
-      final stderrBuf = StringBuffer();
+      void handleLine(String line) {
+        logSink.write(line);
+        allLines.add(line);
+        // Stream notable lines to UI in real time
+        final t = line.trim();
+        if (t.isNotEmpty) onLog('    $t');
+      }
 
       process.stdout
           .transform(const Utf8Decoder(allowMalformed: true))
-          .listen((line) {
-        stdoutBuf.write(line);
-        if (kDebugMode) debugPrint('[${mod.name}] $line');
-      });
+          .listen(handleLine);
       process.stderr
           .transform(const Utf8Decoder(allowMalformed: true))
-          .listen((line) {
-        stderrBuf.write(line);
-      });
+          .listen(handleLine);
 
       final exitCode = await process.exitCode;
+      await logSink.flush();
+      await logSink.close();
+
       if (exitCode != 0) {
-        final err = stderrBuf.toString().trim();
+        // Return last 20 lines so the UI log shows the actual error
+        final tail = allLines.reversed.take(20).toList().reversed.join('\n').trim();
+        onLog('  ⛔ Pełny log: ${logFile.path}');
         return (
           success: false,
-          error: 'flutter build zakończony kodem $exitCode\n$err'
+          error: 'flutter build zakończony kodem $exitCode\n$tail',
         );
       }
       return (success: true, error: null);
     } catch (e) {
+      await logSink.close();
       return (success: false, error: 'Błąd uruchamiania flutter: $e');
     }
   }
