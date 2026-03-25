@@ -416,12 +416,13 @@ class BuildService {
       throw 'Nie znaleziono zbudowanego exe: ${builtExe.path}';
     }
 
-    // Each module gets its OWN subfolder to avoid data/ DLL conflicts:
-    //   output/{serverName}/{ModuleName}/
-    //     ├── {ServerName} Launcher.exe   ← renamed
+    // Each module gets its OWN versioned subfolder:
+    //   output/{serverName}/v{version}/{ModuleName}/
+    //     ├── {ServerName} Launcher.exe
     //     ├── flutter_windows.dll
-    //     └── data/                       ← flutter assets
-    final outDir = Directory(p.join(_outputRoot, config.serverName, mod.outputAs));
+    //     └── data/
+    final version = _readVersion(mod.dir); // reads bumped version from pubspec
+    final outDir = Directory(p.join(_outputRoot, config.serverName, 'v$version', mod.outputAs));
     await outDir.create(recursive: true);
 
     // Copy entire Release folder first (DLLs + data/)
@@ -431,6 +432,7 @@ class BuildService {
     final destExe = File(p.join(outDir.path, '${mod.outputAs}.exe'));
     await builtExe.copy(destExe.path);
 
+    onLog('  📁 Output: ${outDir.path}');
     return destExe.path;
   }
 
