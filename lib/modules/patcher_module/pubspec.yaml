@@ -2,7 +2,7 @@ name: server_patcher
 description: "Valheim Launcher Patcher — patcher wygenerowany przez Valheim Launcher Generator."
 publish_to: 'none'
 
-version: 1.0.0+3
+version: 1.0.0+5
 
 environment:
   sdk: ^3.9.2

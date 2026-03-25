@@ -271,10 +271,30 @@ class BuildService {
           .writeAsString(encryptedSalt);
       onLog('  🔐 manifest.sig wstrzyknięty do ${mod.name}/assets/');
 
-      // 2. Write ftp.json (plaintext — used by valheim_files_service for FTP operations)
+      // 2. Write ftp.json (plaintext — used by ftp_downloader for FTP operations)
       await File(p.join(assetsDir.path, 'ftp.json'))
           .writeAsString(const JsonEncoder.withIndent('  ')
               .convert(config.toFtpJson()));
+
+      // 2b. Inject background video/image — launcher module only.
+      //     Copies user-selected backgroundPath → assets/video/background.mp4
+      if (mod.name == 'launcher' && config.backgroundPath.isNotEmpty) {
+        final bgSrc = File(config.backgroundPath);
+        if (await bgSrc.exists()) {
+          final videoDir = Directory(p.join(assetsDir.path, 'video'));
+          await videoDir.create(recursive: true);
+          final bgExt = p.extension(config.backgroundPath);
+          final destName = 'background$bgExt';
+          await bgSrc.copy(p.join(videoDir.path, destName));
+          // If extension differs from .mp4, also copy as background.mp4 alias
+          if (bgExt.toLowerCase() != '.mp4') {
+            await bgSrc.copy(p.join(videoDir.path, 'background.mp4'));
+          }
+          onLog('  🎬 Tło wstrzyknięte: ${p.basename(config.backgroundPath)}');
+        } else {
+          onLog('  ⚠️ Plik tła nie istnieje: ${config.backgroundPath}');
+        }
+      }
 
       // 3. Bump build number in pubspec.yaml (+N → +N+1)
       await _bumpBuildNumber(mod.dir);

@@ -1,0 +1,8 @@
+{
+  "patch_paths": [
+    "/BepInEx/",
+    "/doorstop_config.ini",
+    "/.doorstop_version",
+    "/winhttp.dll"
+  ]
+}

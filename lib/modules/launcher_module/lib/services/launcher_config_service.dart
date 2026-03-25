@@ -123,12 +123,24 @@ class LauncherConfigService {
       final decrypted = await cc.loadDecryptedConfig();
       if (decrypted != null && decrypted.serverName.isNotEmpty) {
         if (kDebugMode) {
-          debugPrint('[LauncherConfigService] Loaded encrypted config: ${decrypted.serverName}');
+          debugPrint('[LauncherConfigService] Loaded encrypted config: ${decrypted.serverName} addr=${decrypted.serverAddr}');
+        }
+        // serverAddr may be "hostname:port" — split into host and port
+        final addr = decrypted.serverAddr.trim();
+        final colonIdx = addr.lastIndexOf(':');
+        String host;
+        int port;
+        if (colonIdx > 0) {
+          host = addr.substring(0, colonIdx);
+          port = int.tryParse(addr.substring(colonIdx + 1)) ?? decrypted.serverPort;
+        } else {
+          host = addr;
+          port = decrypted.serverPort;
         }
         return LauncherConfig(
           serverName: decrypted.serverName,
-          serverAddress: decrypted.serverAddr,
-          serverPort: decrypted.serverPort,
+          serverAddress: host,
+          serverPort: port,
           serverPassword: decrypted.serverPassword,
         );
       }

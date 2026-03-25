@@ -58,7 +58,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Aurora Borealis Launcher',
+      title: 'Launcher',
       theme: ThemeData(
         fontFamily: 'Norse',
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
@@ -125,7 +125,7 @@ class _LauncherScreenState extends State<LauncherScreen> {
       // === VIDEO PLAYER (media_kit) - muted, only for visuals ===
       _player = Player(
         configuration: const PlayerConfiguration(
-          title: 'Aurora Borealis Launcher',
+          title: 'Launcher',
           ready: null,
         ),
       );
@@ -135,9 +135,9 @@ class _LauncherScreenState extends State<LauncherScreen> {
       await _player.setVolume(0.0);
       await _player.setPlaylistMode(PlaylistMode.loop);
 
-      // Open video asset (muted)
+      // Play background.mp4 injected by generator; fallback to smok.mp4
       await _player.open(
-        Media('asset:///assets/video/smok.mp4'),
+        Media('asset:///assets/video/background.mp4'),
         play: true,
       );
       if (kDebugMode) debugPrint('[Video] Video player started (muted)');
@@ -154,15 +154,18 @@ class _LauncherScreenState extends State<LauncherScreen> {
         } catch (_) {}
       }
     } catch (e) {
-      // If initialization fails, keep UI functional without video.
-      debugPrint('Video init error: $e');
-      // Ensure the window is shown even if video fails to load
+      // If background.mp4 not found, try fallback smok.mp4
+      try {
+        _player.open(Media('asset:///assets/video/smok.mp4'), play: true);
+      } catch (_) {}
+      debugPrint('[Video] background.mp4 not found, using smok.mp4 fallback: $e');
       if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
         try {
           await windowManager.show();
           await windowManager.focus();
         } catch (_) {}
       }
+      setState(() => _videoReady = true);
     }
   }
 
