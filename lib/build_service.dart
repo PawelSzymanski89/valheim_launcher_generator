@@ -416,13 +416,14 @@ class BuildService {
       throw 'Nie znaleziono zbudowanego exe: ${builtExe.path}';
     }
 
-    // Each module gets its OWN versioned subfolder:
-    //   output/{serverName}/v{version}/{ModuleName}/
-    //     ├── {ServerName} Launcher.exe
-    //     ├── flutter_windows.dll
-    //     └── data/
-    final version = _readVersion(mod.dir); // reads bumped version from pubspec
-    final outDir = Directory(p.join(_outputRoot, config.serverName, 'v$version', mod.outputAs));
+    // All 3 modules share ONE versioned release folder (named after launcher version):
+    //   output/{serverName}/v{launcherVersion}/
+    //     ├── {ServerName} Launcher/   ← launcher exe + DLLs + data/
+    //     ├── {ServerName} Patcher/    ← patcher exe + DLLs + data/
+    //     └── {ServerName} Updater/    ← updater exe + DLLs + data/
+    final launcherPubspec = p.join(_modulesRoot, 'launcher_module');
+    final releaseVersion = _readVersion(launcherPubspec);
+    final outDir = Directory(p.join(_outputRoot, config.serverName, 'v$releaseVersion', mod.outputAs));
     await outDir.create(recursive: true);
 
     // Copy entire Release folder first (DLLs + data/)
@@ -432,7 +433,7 @@ class BuildService {
     final destExe = File(p.join(outDir.path, '${mod.outputAs}.exe'));
     await builtExe.copy(destExe.path);
 
-    onLog('  📁 Output: ${outDir.path}');
+    onLog('  📁 Output: v$releaseVersion/${mod.outputAs}/');
     return destExe.path;
   }
 
