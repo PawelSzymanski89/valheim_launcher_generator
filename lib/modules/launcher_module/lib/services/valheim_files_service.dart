@@ -25,20 +25,16 @@ class RemoteFileEntry {
       if (s is num) size = s.toInt();
       if (s is String) size = int.tryParse(s);
     }
-    if (j.containsKey('modified')) {
-      final m = j['modified'];
-      if (m is String) {
-        modified = DateTime.tryParse(m);
-      }
-      if (m is num) {
-        // Heuristic: manifest may provide seconds (unix epoch) or milliseconds.
-        // If the numeric value looks like seconds (e.g. ~1e9..1e10) treat as seconds and multiply.
-        final v = m.toInt();
+    // Support both 'modified' and 'modifyTime' (patcher uses 'modifyTime')
+    final rawModified = j['modified'] ?? j['modifyTime'];
+    if (rawModified != null) {
+      if (rawModified is String && rawModified.isNotEmpty) {
+        modified = DateTime.tryParse(rawModified);
+      } else if (rawModified is num) {
+        final v = rawModified.toInt();
         if (v < 1000000000000) {
-          // seconds -> convert to milliseconds
           modified = DateTime.fromMillisecondsSinceEpoch(v * 1000);
         } else {
-          // already milliseconds
           modified = DateTime.fromMillisecondsSinceEpoch(v);
         }
       }

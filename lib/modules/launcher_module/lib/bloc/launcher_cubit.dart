@@ -339,22 +339,15 @@ class LauncherCubit extends Cubit<LauncherState> {
       final comparison = filesService.compareRemoteAndLocal(
           remoteList, localList, sizeTolerance: 2);
       
-      List<RemoteFileEntry> toDownload;
-      List<LocalFileEntry> toDelete;
-      Map<String, String> downloadReasons;
 
-      // Jeśli wersja na serwerze jest inna niż lokalna (lub lokalnej brak),
-      // pobieramy WSZYSTKIE pliki z manifestu, aby mieć pewność spójności.
+      // Zawsze używamy smart diff — pobieramy TYLKO pliki które się różnią (rozmiar/data).
+      // Wersja służy TYLKO do pomijania synchronizacji gdy nic się nie zmieniło.
       if (serverVersion != null && localVersion != serverVersion) {
-        if (kDebugMode) debugPrint('[LauncherCubit] Version mismatch ($localVersion -> $serverVersion). Forcing full download.');
-        toDownload = remoteList;
-        toDelete = List<LocalFileEntry>.from(comparison['toDelete'] ?? <LocalFileEntry>[]);
-        downloadReasons = { for (var e in remoteList) e.relativePath: 'VERSION_MISMATCH' };
-      } else {
-        toDownload = List<RemoteFileEntry>.from(comparison['toDownload'] ?? <RemoteFileEntry>[]);
-        toDelete = List<LocalFileEntry>.from(comparison['toDelete'] ?? <LocalFileEntry>[]);
-        downloadReasons = Map<String, String>.from((comparison['downloadReasons'] as Map?) ?? {});
+        if (kDebugMode) debugPrint('[LauncherCubit] Version mismatch ($localVersion -> $serverVersion). Running smart diff.');
       }
+      final toDownload = List<RemoteFileEntry>.from(comparison['toDownload'] ?? <RemoteFileEntry>[]);
+      final toDelete = List<LocalFileEntry>.from(comparison['toDelete'] ?? <LocalFileEntry>[]);
+      final downloadReasons = Map<String, String>.from((comparison['downloadReasons'] as Map?) ?? {});
 
       // Record sync result: whether there are downloads to perform and timestamp
       _lastSyncHadDownload = toDownload.isNotEmpty;
