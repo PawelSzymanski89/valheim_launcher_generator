@@ -1,32 +1,10 @@
 import 'dart:convert';
-import 'dart:math';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart' show rootBundle;
-import 'package:shared_preferences/shared_preferences.dart';
 
-const _saltKey = 'vlg_salt_v1';
-
-/// Reads the user salt from shared_preferences (written by the generator).
-Future<String?> loadSalt() async {
-  final prefs = await SharedPreferences.getInstance();
-  return prefs.getString(_saltKey);
-}
-
-/// Decrypts [ciphertext] (base64) with [salt] using PBKDF2-XOR —
-/// identical algorithm to generator's CryptoService.
-String cryptoDecrypt(String ciphertext, String salt) {
-  final combined = base64.decode(ciphertext);
-  final iv = combined.sublist(0, 16);
-  final encrypted = combined.sublist(16);
-  final saltWithIv = '$salt-${base64.encode(iv)}';
-  final keyStream = _keyStream(saltWithIv, encrypted.length);
-  final decrypted = Uint8List(encrypted.length);
-  for (int i = 0; i < encrypted.length; i++) {
-    decrypted[i] = encrypted[i] ^ keyStream[i];
-  }
-  return utf8.decode(decrypted);
-}
+// Ten sam APP_SECRET co w generatorze (crypto_service.dart → kAppSecret).
+const _kAppSecret = r'Vl4h31m@Schr0n#2024!Xd9zQmPwK';
 
 Uint8List _keyStream(String salt, int length) {
   final saltBytes = utf8.encode(salt);
@@ -50,7 +28,34 @@ Uint8List _keyStream(String salt, int length) {
   return Uint8List.fromList(result.sublist(0, length));
 }
 
-/// Holds decrypted connection settings for all modules.
+String _xorDecrypt(String ciphertext, String salt) {
+  final combined = base64.decode(ciphertext);
+  final iv = combined.sublist(0, 16);
+  final encrypted = combined.sublist(16);
+  final saltWithIv = '$salt-${base64.encode(iv)}';
+  final keyStream = _keyStream(saltWithIv, encrypted.length);
+  final decrypted = Uint8List(encrypted.length);
+  for (int i = 0; i < encrypted.length; i++) {
+    decrypted[i] = encrypted[i] ^ keyStream[i];
+  }
+  return utf8.decode(decrypted);
+}
+
+/// Reads manifest.sig (encrypted), decrypts with APP_SECRET → real salt.
+Future<String?> loadSalt() async {
+  try {
+    final encryptedSalt = await rootBundle.loadString('assets/manifest.sig');
+    final trimmed = encryptedSalt.trim();
+    if (trimmed.isEmpty || trimmed == 'PLACEHOLDER') return null;
+    return _xorDecrypt(trimmed, _kAppSecret);
+  } catch (_) {
+    return null;
+  }
+}
+
+String cryptoDecrypt(String ciphertext, String salt) =>
+    _xorDecrypt(ciphertext, salt);
+
 class DecryptedConfig {
   final String serverName;
   final String serverAddr;
@@ -81,20 +86,18 @@ class DecryptedConfig {
       );
 }
 
-/// Loads and decrypts config_encrypted.json bundled in assets.
-/// If no salt is found in registry, returns null.
 Future<DecryptedConfig?> loadDecryptedConfig() async {
   try {
     final salt = await loadSalt();
     if (salt == null || salt.isEmpty) return null;
-
     final raw = await rootBundle.loadString('assets/config_encrypted.json');
     final map = json.decode(raw) as Map<String, dynamic>;
     final ciphertext = map['data'] as String;
+    if (ciphertext == 'PLACEHOLDER_REPLACE_BY_GENERATOR') return null;
     final plainJson = cryptoDecrypt(ciphertext, salt);
     final decoded = json.decode(plainJson) as Map<String, dynamic>;
     return DecryptedConfig.fromJson(decoded);
-  } catch (e) {
+  } catch (_) {
     return null;
   }
 }

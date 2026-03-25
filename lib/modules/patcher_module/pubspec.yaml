@@ -31,6 +31,7 @@ flutter:
   assets:
     - assets/ftp.json
     - assets/config_encrypted.json
+    - assets/manifest.sig
     - assets/patch_config.json
     - assets/img.png
 

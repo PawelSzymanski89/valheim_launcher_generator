@@ -98,6 +98,7 @@ flutter:
     - assets/images/valheim.png
     - assets/ftp.json
     - assets/config_encrypted.json
+    - assets/manifest.sig
     - assets/doorstop.zip
     - assets/lang/en/translations.json
     - assets/lang/en/flag.png

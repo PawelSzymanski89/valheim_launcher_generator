@@ -33,6 +33,7 @@ flutter:
   assets:
     - assets/ftp.json
     - assets/config_encrypted.json
+    - assets/manifest.sig
     - assets/images/logo.png
   fonts:
     - family: Norse

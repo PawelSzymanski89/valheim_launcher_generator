@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'generator/config_manager.dart';
+import 'utils/crypto_service.dart';
 import 'utils/shared_salt.dart';
 import 'utils/profile_service.dart';
 
@@ -241,7 +242,12 @@ class BuildService {
       await File(p.join(assetsDir.path, 'config_encrypted.json'))
           .writeAsString(encryptedPayload);
 
-      // 2. Write ftp_preview.json
+      // 1b. Write manifest.sig — salt encrypted with APP_SECRET (not plaintext!)
+      final encryptedSalt = CryptoService.encryptSalt(config.salt);
+      await File(p.join(assetsDir.path, 'manifest.sig'))
+          .writeAsString(encryptedSalt);
+      onLog('  🔐 manifest.sig wstrzyknięty do ${mod.name}/assets/');
+
       await File(p.join(assetsDir.path, 'ftp_preview.json'))
           .writeAsString(const JsonEncoder.withIndent('  ')
               .convert(config.toFtpJson()));

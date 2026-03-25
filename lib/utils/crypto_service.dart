@@ -3,6 +3,12 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 
+/// Stały sekret aplikacji — skompilowany w binarce generatora i modułów.
+/// Sól w pliku config_salt.txt jest zaszyfrowana tym kluczem.
+/// Zmiana tego stałego → wszystkie wygenerowane launchery przestaną działać
+/// (trzeba regenerować wszystkie buildy).
+const kAppSecret = r'Vl4h31m@Schr0n#2024!Xd9zQmPwK';
+
 /// Szyfrowanie XOR-stream z kluczem derywowanym PBKDF2-SHA256.
 /// Wystarczające dla konfiguracji offline — nie wymaga pointycastle.
 class CryptoService {
@@ -64,8 +70,17 @@ class CryptoService {
   /// Generuje kryptograficznie bezpieczny salt min. 30 znaków (base64url).
   static String generateSalt({int length = 32}) {
     final rng = Random.secure();
-    final bytes = Uint8List.fromList(List.generate(length, (_) => rng.nextInt(256)));
+    final bytes =
+        Uint8List.fromList(List.generate(length, (_) => rng.nextInt(256)));
     final b64 = base64Url.encode(bytes);
     return b64.length >= 30 ? b64 : b64.padRight(30, '0');
   }
+
+  /// Szyfruje [salt] kluczem APP_SECRET — do zapisu w pliku config_salt.txt.
+  /// Wynik to base64 — wygląda jak losowe śmieci, bez APP_SECRET nie do odszyfrowania.
+  static String encryptSalt(String salt) => encrypt(salt, kAppSecret);
+
+  /// Odszyfrowuje zawartość config_salt.txt (zaszyfrowaną przez encryptSalt).
+  static String decryptSalt(String encryptedSalt) =>
+      decrypt(encryptedSalt, kAppSecret);
 }
