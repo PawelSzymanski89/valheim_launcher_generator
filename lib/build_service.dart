@@ -220,6 +220,27 @@ class BuildService {
     }
   }
 
+  /// Increments the build number (+N) in the module's pubspec.yaml.
+  /// e.g. version: 1.0.0+5 → 1.0.0+6
+  Future<void> _bumpBuildNumber(String modDir) async {
+    try {
+      final pubspecFile = File(p.join(modDir, 'pubspec.yaml'));
+      if (!await pubspecFile.exists()) return;
+      var content = await pubspecFile.readAsString();
+      final versionRegex = RegExp(r'^(version:\s*\S+?\+)(\d+)', multiLine: true);
+      final match = versionRegex.firstMatch(content);
+      if (match == null) return;
+      final prefix = match.group(1)!;
+      final current = int.parse(match.group(2)!);
+      final next = current + 1;
+      content = content.replaceFirst(versionRegex, '$prefix$next');
+      await pubspecFile.writeAsString(content);
+      onLog('  🔢 Build number: $current → $next');
+    } catch (e) {
+      onLog('  ⚠️ Nie udało się podbić build number: $e');
+    }
+  }
+
   Future<ModuleBuildResult> _buildModule(
       _ModuleSpec mod, String encryptedPayload) async {
     // Create junction to short path to avoid Windows 260-char path limit
@@ -248,11 +269,13 @@ class BuildService {
           .writeAsString(encryptedSalt);
       onLog('  🔐 manifest.sig wstrzyknięty do ${mod.name}/assets/');
 
-      await File(p.join(assetsDir.path, 'ftp_preview.json'))
+      // 2. Write ftp.json (plaintext — used by valheim_files_service for FTP operations)
+      await File(p.join(assetsDir.path, 'ftp.json'))
           .writeAsString(const JsonEncoder.withIndent('  ')
               .convert(config.toFtpJson()));
 
-      // 3. flutter pub get in REAL path — generates ephemeral cpp_client_wrapper files
+      // 3. Bump build number in pubspec.yaml (+N → +N+1)
+      await _bumpBuildNumber(mod.dir);
       onLog('  📦 flutter pub get...');
       final pubResult = await Process.run(
         'flutter', ['pub', 'get'],
