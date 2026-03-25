@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:dartssh2/dartssh2.dart';
 import 'package:ftpconnect/ftpconnect.dart';
 import 'generator/config_manager.dart';
+import 'package:crypto/crypto.dart';
+import 'package:image/image.dart' as img;
 import 'utils/crypto_service.dart';
 import 'utils/shared_salt.dart';
 import 'utils/profile_service.dart';
@@ -295,8 +298,20 @@ class BuildService {
           onLog('  ⚠️ Plik tła nie istnieje: ${config.backgroundPath}');
         }
       }
+      // 3. Generate dynamic icon (Logo)
+      await _generateIcon(mod, assetsDir);
 
-      // 3. Bump build number in pubspec.yaml (+N → +N+1)
+      onLog('  🎨 Generowanie ikon systemowych (EXE/Taskbar)...');
+      final iconResult = await Process.run(
+        'dart', ['run', 'flutter_launcher_icons'],
+        workingDirectory: mod.dir,
+        runInShell: true,
+      );
+      if (iconResult.exitCode != 0) {
+        onLog('  ⚠️ Ostrzeżenie (ikony): ${iconResult.stderr}'.trim());
+      }
+
+      // 4. Bump build number in pubspec.yaml (+N → +N+1)
       await _bumpBuildNumber(mod.dir);
       onLog('  📦 flutter pub get...');
       final pubResult = await Process.run(
@@ -592,6 +607,62 @@ class BuildService {
       await ftp.disconnect();
     }
     return (success: true, error: null);
+  }
+
+  /// Generuje dynamiczny obrazek logo (256x256) z akronimem nazwy przy użyciu
+  /// PowerShell + System.Drawing dla natywnego renderowania fontu Norse.
+  Future<void> _generateIcon(_ModuleSpec mod, Directory assetsDir) async {
+    try {
+      final imgDir = Directory(p.join(assetsDir.path, 'images'));
+      await imgDir.create(recursive: true);
+
+      // 1. Wygeneruj akronim (np. "Aurora Borealis" + "Launcher" -> "ABL")
+      final nameParts = config.serverName.split(RegExp(r'\s+'));
+      String acronym = '';
+      for (var p_ in nameParts) {
+        if (p_.isNotEmpty) acronym += p_[0].toUpperCase();
+      }
+      
+      // Dodaj sufix modułu (L dla Launcher, P dla Patcher, U dla Updater)
+      if (mod.name.toLowerCase().contains('launcher')) acronym += 'L';
+      else if (mod.name.toLowerCase().contains('patcher')) acronym += 'P';
+      else if (mod.name.toLowerCase().contains('updater')) acronym += 'U';
+
+      // 2. Użyj PowerShell + System.Drawing do renderowania
+      final outputPath = p.join(imgDir.path, 'logo.png');
+      final fontPath = p.join(_generatorRoot, 'assets', 'fonts', 'Norsebold.otf');
+      final scriptPath = p.join(_generatorRoot, 'scripts', 'generate_icon.ps1');
+      
+      // Kolor: biały dla modułów (na ciemnym tle dobrze widoczny)
+      final result = await Process.run(
+        'powershell',
+        [
+          '-ExecutionPolicy', 'Bypass',
+          '-File', scriptPath,
+          '-Text', acronym,
+          '-OutputPath', outputPath,
+          '-FontPath', fontPath,
+          '-Size', '256',
+        ],
+        workingDirectory: _generatorRoot,
+        runInShell: true,
+      );
+
+      if (result.exitCode != 0) {
+        onLog('  ⚠️ PowerShell icon error: ${result.stderr}');
+        return;
+      }
+      
+      // Launcher potrzebuje też valheim.png dla kompatybilności wstecznej kodu
+      if (mod.name == 'launcher') {
+        final logoBytes = await File(outputPath).readAsBytes();
+        await File(p.join(imgDir.path, 'valheim.png')).writeAsBytes(logoBytes);
+      }
+
+      onLog('  🎨 Ikona wygenerowana: $acronym (Norse Bold)');
+    } catch (e) {
+      onLog('  ⚠️ Błąd generowania ikony: $e');
+    }
   }
 
   String _fmtSize(int bytes) {

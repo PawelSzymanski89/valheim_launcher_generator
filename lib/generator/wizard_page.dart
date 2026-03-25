@@ -256,9 +256,6 @@ class _StepItem extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 10),
-        Icon(icon, size: 15,
-            color: isActive ? const Color(0xFFD4A017) : isDone ? Colors.white54 : Colors.white24),
-        const SizedBox(width: 8),
         Flexible(
           child: Text(label,
               overflow: TextOverflow.ellipsis,
@@ -802,9 +799,8 @@ class _ProfileButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      child: TextButton.icon(
-        icon: const Icon(Icons.folder_open_outlined, size: 16, color: Color(0xFF8B6914)),
-        label: const Text(
+      child: TextButton(
+        child: const Text(
           'Profile',
           style: TextStyle(
             fontFamily: 'Norse', fontSize: 13,
@@ -961,9 +957,8 @@ class _ContactButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      child: TextButton.icon(
-        icon: const Icon(Icons.mail_outline, size: 16, color: Color(0xFF8B6914)),
-        label: const Text(
+      child: TextButton(
+        child: const Text(
           'Kontakt',
           style: TextStyle(
             fontFamily: 'Norse',
@@ -1008,8 +1003,6 @@ class _ContactDialog extends StatelessWidget {
             children: [
               // Header
               Row(children: [
-                const Icon(Icons.mail_outline, color: Color(0xFFD4A017), size: 22),
-                const SizedBox(width: 12),
                 const Text(
                   'Kontakt',
                   style: TextStyle(
@@ -1083,8 +1076,6 @@ class _ContactRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(children: [
-      Icon(icon, size: 16, color: const Color(0xFF8B6914)),
-      const SizedBox(width: 10),
       Text(
         '$label: ',
         style: const TextStyle(fontFamily: 'Norse', fontSize: 13, color: Colors.white38),

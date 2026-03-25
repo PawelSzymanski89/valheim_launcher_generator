@@ -30,7 +30,80 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       title: '$_serverName',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF0D0A06),
+        fontFamily: 'Norse',
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFFD4A017),
+          secondary: Color(0xFF8B6914),
+          surface: Color(0xFF1A1410),
+          onPrimary: Colors.black,
+          onSecondary: Colors.white,
+          onSurface: Colors.white70,
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF1A1410),
+          foregroundColor: Color(0xFFD4A017),
+          elevation: 0,
+          titleTextStyle: TextStyle(
+            fontFamily: 'Norse',
+            fontSize: 20,
+            color: Color(0xFFD4A017),
+            letterSpacing: 2,
+          ),
+        ),
+        cardTheme: CardThemeData(
+          color: const Color(0xFF1A1410),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(6),
+            side: const BorderSide(color: Color(0xFF2A2010)),
+          ),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFD4A017),
+            foregroundColor: Colors.black,
+            textStyle: const TextStyle(fontFamily: 'Norse', letterSpacing: 1),
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            foregroundColor: const Color(0xFF8B6914),
+            textStyle: const TextStyle(fontFamily: 'Norse'),
+          ),
+        ),
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          backgroundColor: Color(0xFFD4A017),
+          foregroundColor: Colors.black,
+        ),
+        iconButtonTheme: IconButtonThemeData(
+          style: IconButton.styleFrom(
+            foregroundColor: const Color(0xFF8B6914),
+          ),
+        ),
+        sliderTheme: const SliderThemeData(
+          activeTrackColor: Color(0xFFD4A017),
+          thumbColor: Color(0xFFD4A017),
+          inactiveTrackColor: Color(0xFF2A2010),
+        ),
+        progressIndicatorTheme: const ProgressIndicatorThemeData(
+          color: Color(0xFFD4A017),
+          linearTrackColor: Color(0xFF2A2010),
+        ),
+        dialogTheme: const DialogThemeData(
+          backgroundColor: Color(0xFF1A1410),
+          titleTextStyle: TextStyle(fontFamily: 'Norse', fontSize: 20, color: Color(0xFFD4A017)),
+        ),
+        snackBarTheme: const SnackBarThemeData(
+          backgroundColor: Color(0xFF1A1410),
+          contentTextStyle: TextStyle(fontFamily: 'Norse', color: Colors.white70),
+        ),
+        listTileTheme: const ListTileThemeData(
+          textColor: Colors.white70,
+          iconColor: Color(0xFF8B6914),
+          selectedTileColor: Color(0x20D4A017),
+        ),
+        dividerColor: const Color(0xFF2A2010),
       ),
       home: FtpFilesPage(title: '$_serverName'),
     );
@@ -155,6 +228,62 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
 
     // Przypisz broadcast proxy do _progressStream używanego przez StreamBuilder
     _progressStream = _proxyController?.stream;
+  }
+
+  void _showAboutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0xFF444444), width: 1),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.info_outline, color: Colors.blueAccent),
+            SizedBox(width: 12),
+            Text('Informacja / Information',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontFamily: 'Norse')),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Valheim® jest zarejestrowanym znakiem towarowym Iron Gate AB. '
+              'Niniejsza aplikacja jest niezależnym narzędziem i używa nazwy '
+              'Valheim wyłącznie w celu identyfikacji.\n\n'
+              'Valheim® is a registered trademark of Iron Gate AB. '
+              'This application is an independent, unofficial tool used '
+              'solely for identification purposes.',
+              style: TextStyle(
+                  color: Colors.white70, fontSize: 13, height: 1.4),
+            ),
+            Divider(height: 24, color: Colors.white12),
+            Text(
+              'Patcher created with Valheim Launcher Generator\n'
+              'https://github.com/PawelSzymanski89/valheim_launcher_generator',
+              style: TextStyle(
+                  color: Colors.white38, fontSize: 11, fontFamily: 'Norse'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK',
+                style:
+                    TextStyle(color: Colors.blueAccent, fontFamily: 'Norse')),
+          ),
+        ],
+      ),
+    );
   }
   Future<void> _navigateToFolder(String folderName) async {
     final newPath = _currentPath.endsWith('/')
@@ -414,6 +543,11 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
               );
             },
           ),
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'Informacje',
+            onPressed: () => _showAboutDialog(context),
+          ),
         ],
       ),
       body: Row(
@@ -485,11 +619,11 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
         final isSelected = _selectedFile == file;
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-          color: isSelected ? Colors.deepPurple.shade100 : null,
+          color: isSelected ? const Color(0x30D4A017) : null,
           child: ListTile(
             leading: Icon(
               file.isDir ? Icons.folder : Icons.insert_drive_file,
-              color: file.isDir ? Colors.blue : Colors.grey,
+              color: file.isDir ? const Color(0xFFD4A017) : const Color(0xFF8B6914),
             ),
             title: Text(
               file.name,
@@ -525,7 +659,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
     // Jeśli trwa indeksowanie — użyj StreamBuilder, inaczej pokaż finalne statystyki lub brak danych
     if (_isLoadingStats) {
       return Container(
-        color: Colors.grey.shade100,
+        color: const Color(0xFF0D0A06),
         child: StreamBuilder<ScanProgress>(
           stream: _progressStream,
           builder: (context, snapshot) {
@@ -541,7 +675,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
     }
 
     return Container(
-      color: Colors.grey.shade100,
+      color: const Color(0xFF0D0A06),
       child: _statistics != null
           ? Row(
               children: [
@@ -563,9 +697,9 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: Colors.deepPurple.shade50,
+                              color: const Color(0xFF1A1410),
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.deepPurple.shade200),
+                              border: Border.all(color: const Color(0xFF2A2010)),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -627,14 +761,14 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
     final isBuildingCache = progress == null || progress.totalSize == 0;
 
     return Container(
-      color: Colors.grey.shade100,
+      color: const Color(0xFF0D0A06),
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.deepPurple.shade50,
-              border: Border(bottom: BorderSide(color: Colors.deepPurple.shade200)),
+              color: const Color(0xFF1A1410),
+              border: const Border(bottom: BorderSide(color: Color(0xFF2A2010))),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -669,7 +803,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                                 style: const TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.deepPurple,
+                                  color: Color(0xFFD4A017),
                                 ),
                               ),
                             ],
@@ -766,7 +900,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                       width: 50,
                       height: 50,
                       child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation(Colors.deepPurple.shade400),
+                        valueColor: const AlwaysStoppedAnimation(Color(0xFFD4A017)),
                         strokeWidth: 3,
                       ),
                     ),
@@ -807,9 +941,9 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                           padding: const EdgeInsets.all(8),
                           alignment: Alignment.centerLeft,
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: const Color(0xFF1A1410),
                             borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: Colors.grey.shade300),
+                            border: Border.all(color: const Color(0xFF2A2010)),
                           ),
                           child: Text(
                             item,
@@ -843,7 +977,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
             value,
             style: const TextStyle(
               fontWeight: FontWeight.bold,
-              color: Colors.deepPurple,
+              color: Color(0xFFD4A017),
               fontSize: 14,
             ),
           ),

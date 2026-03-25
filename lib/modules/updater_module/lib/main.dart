@@ -55,8 +55,20 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Updater',
       theme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF0D0A06),
         fontFamily: 'Norse',
-        primarySwatch: Colors.blueGrey,
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFFD4A017),
+          secondary: Color(0xFF8B6914),
+          surface: Color(0xFF1A1410),
+          onPrimary: Colors.black,
+          onSurface: Colors.white70,
+        ),
+        progressIndicatorTheme: const ProgressIndicatorThemeData(
+          color: Color(0xFFD4A017),
+          linearTrackColor: Color(0xFF2A2010),
+        ),
       ),
       home: const UpdaterPage(),
     );
@@ -364,6 +376,13 @@ class _UpdaterPageState extends State<UpdaterPage> {
                 const SizedBox(width: 10),
                 Expanded(child: Text('$_serverName Updater', style: const TextStyle(color: Colors.white, fontSize: 16))),
                 InkWell(
+                  onTap: () => _showAboutDialog(context),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12.0),
+                    child: Icon(Icons.info_outline, color: Colors.white70, size: 20),
+                  ),
+                ),
+                InkWell(
                   onTap: () => exit(0),
                   child: const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 12.0),
@@ -425,6 +444,62 @@ class _UpdaterPageState extends State<UpdaterPage> {
               ),
             ),
           )
+        ],
+      ),
+    );
+  }
+
+  void _showAboutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0xFF444444), width: 1),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.info_outline, color: Colors.blueAccent),
+            SizedBox(width: 12),
+            Text('Informacja / Information',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontFamily: 'Norse')),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Valheim® jest zarejestrowanym znakiem towarowym Iron Gate AB. '
+              'Niniejsza aplikacja jest niezależnym narzędziem i używa nazwy '
+              'Valheim wyłącznie w celu identyfikacji.\n\n'
+              'Valheim® is a registered trademark of Iron Gate AB. '
+              'This application is an independent, unofficial tool used '
+              'solely for identification purposes.',
+              style: TextStyle(
+                  color: Colors.white70, fontSize: 13, height: 1.4),
+            ),
+            Divider(height: 24, color: Colors.white12),
+            Text(
+              'Launcher created with Valheim Launcher Generator\n'
+              'https://github.com/PawelSzymanski89/valheim_launcher_generator',
+              style: TextStyle(
+                  color: Colors.white38, fontSize: 11, fontFamily: 'Norse'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK',
+                style:
+                    TextStyle(color: Colors.blueAccent, fontFamily: 'Norse')),
+          ),
         ],
       ),
     );

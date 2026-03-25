@@ -62,5 +62,8 @@
   "players_online_plural": "players online",
   "player_time_played": "Time played: {minutes} min",
   "dialog_close": "Close",
-  "password_copied_to_clipboard": "Server password copied to clipboard!"
+  "password_copied_to_clipboard": "Server password copied to clipboard!",
+  "information_label": "Information",
+  "legal_disclaimer_title": "Legal Disclaimer",
+  "legal_disclaimer_content": "Valheim® is a registered trademark of Iron Gate AB. This launcher is an independent tool and is not affiliated with Iron Gate AB or Coffee Stain Studios. The Valheim name is used solely for the purpose of identifying game compatibility. All rights to the brand and original assets belong to their respective legal owners."
 }

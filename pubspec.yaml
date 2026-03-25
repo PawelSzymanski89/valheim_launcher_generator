@@ -36,18 +36,21 @@ dependencies:
 
   # i18n
   intl: ^0.20.0
+  image: ^4.3.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
   test: ^1.24.0
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
   generate: true
 
   assets:
+    - assets/images/
     - assets/backgrounds/
     - assets/locales/
 
@@ -56,4 +59,12 @@ flutter:
       fonts:
         - asset: assets/fonts/Norse.otf
         - asset: assets/fonts/Norsebold.otf
-          weight: 700
+
+flutter_launcher_icons:
+  android: false
+  ios: false
+  image_path: "assets/images/logo.png"
+  windows:
+    generate: true
+    image_path: "assets/images/logo.png"
+    icon_size: 256

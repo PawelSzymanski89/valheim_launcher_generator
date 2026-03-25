@@ -95,6 +95,78 @@ class _LauncherScreenState extends State<LauncherScreen> {
     }
   }
 
+  void _showAboutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Color(0xFF444444), width: 1),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.info_outline, color: Color(0xFF64B5F6)),
+            const SizedBox(width: 12),
+            Text(
+              I18n.instance.t('information_label'),
+              style: const TextStyle(color: Colors.white, fontFamily: 'Norse'),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              I18n.instance.t('legal_disclaimer_title'),
+              style: const TextStyle(
+                color: Color(0xFF64B5F6),
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              I18n.instance.t('legal_disclaimer_content'),
+              style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.5),
+            ),
+            const Divider(height: 32, color: Colors.white12),
+            const Center(
+              child: Column(
+                children: [
+                   Text(
+                    'Created with Valheim Launcher Generator',
+                    style: TextStyle(color: Colors.white38, fontSize: 11, fontFamily: 'Norse'),
+                  ),
+                  Text(
+                    'https://github.com/PawelSzymanski89/valheim_launcher_generator',
+                    style: TextStyle(color: Colors.white30, fontSize: 10),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    '© 2026 Aurora Borealis Launcher System',
+                    style: TextStyle(color: Colors.white30, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              I18n.instance.t('dialog_close'),
+              style: const TextStyle(color: Color(0xFF64B5F6), fontFamily: 'Norse'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -320,125 +392,261 @@ class _LauncherScreenState extends State<LauncherScreen> {
             children: [
               // Background video
               if (_videoReady)
-                Video(
-                  controller: _videoController,
-                  fit: BoxFit.cover,
+                RepaintBoundary(
+                  child: Video(
+                    controller: _videoController,
+                    fit: BoxFit.cover,
+                  ),
                 )
               else
                 const ColoredBox(color: Colors.black),
 
-              // Subtle gradient overlay to improve text legibility
-              Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, Colors.black54],
-                  ),
-                ),
-              ),
-
-              // Custom title bar with window controls (frameless)
-              Align(
-                alignment: Alignment.topCenter,
-                child: _CustomTitleBar(),
-              ),
-
-              // Title group positioned ~10% from the top
-              Positioned(
-                top: MediaQuery.of(context).size.height * 0.10,
-                left: 0,
-                right: 0,
-                child: Builder(
-                  builder: (context) {
-                    final size = MediaQuery.of(context).size;
-                    final double titleFontSize = size.shortestSide * 0.15;
-                    // jeszcze mniejszy, responsywny odstęp między tytułem a wersją
-                    final double gap = (titleFontSize * 0.01).clamp(0.5, 4.0);
-                     final textStyle = const TextStyle(
-                      fontFamily: 'Norse',
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                      letterSpacing: 1.2,
-                    ).copyWith(fontSize: titleFontSize);
-
-                    return Column(
-                       mainAxisSize: MainAxisSize.min,
-                       children: [
-                         Text(
-                           I18n.instance.t('app_title'),
-                           textAlign: TextAlign.center,
-                           style: textStyle,
-                         ),
-                        SizedBox(height: gap),
-                        // Mały tekst z informacją o wersji aplikacji
-                        // (dynamiczny gap zapewnia mniejszy odstęp na dużych ekranach)
-                        Text(
-                          _appVersion.isNotEmpty ? _appVersion : 'v?',
-                          textAlign: TextAlign.center,
-                          style: textStyle.copyWith(
-                            fontSize: titleFontSize * 0.22,
-                            fontWeight: FontWeight.w400,
-                            color: Colors.white70,
-                          ),
-                        ),
-                       ],
-                     );
-                  },
-                ),
-              ),
-
-              // Footer: Designed with <3 by cygan (link)
-              BlocBuilder<LauncherCubit, LauncherState>(
-                builder: (context, state) {
-                  // Jeśli pokazujemy pasek postępu, podnieśmy footer nieco wyżej
-                  // żeby nie przykrywał tekstu postępu. W przeciwnym wypadku trzymajmy
-                  // domyślną pozycję 12 px od dolnej krawędzi.
-                  final double bottomOffset = (state.isBusy && state.showProgress) ? 64.0 : 12.0;
-
-                  return Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: bottomOffset,
-                    child: Center(
-                      child: Opacity(
-                        // lekko przygaszony podczas pracy aplikacji
-                        opacity: (state.isBusy && state.showProgress) ? 0.95 : 1.0,
-                        child: RichText(
-                          text: TextSpan(
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 14,
-                              fontFamily: 'Norse',
-                            ),
-                            children: [
-                              const TextSpan(text: ''),
-                              TextSpan(text: '${I18n.instance.t('footer_designed_with')} '),
-                              const WidgetSpan(
-                                alignment: PlaceholderAlignment.middle,
-                                child: Icon(
-                                  Icons.favorite,
-                                  size: 16,
-                                  color: Color(0xFFE53935), // red heart
-                                ),
-                              ),
-                              const TextSpan(text: ' '),
-                              TextSpan(text: '${I18n.instance.t('footer_by')} '),
-                              TextSpan(
-                                text: 'cygan',
-                                style: const TextStyle(
-                                  color: Color(0xFF64B5F6),
-                                  decoration: TextDecoration.underline,
-                                ),
-                                recognizer: _linkRecognizer..onTap = _openLinkedIn,
-                              ),
-                            ],
-                          ),
+              // Isolated UI layer to prevent video frame updates from repainting the entire UI
+              RepaintBoundary(
+                child: Stack(
+                  children: [
+                    // Subtle gradient overlay to improve text legibility
+                    Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.transparent, Colors.black54],
                         ),
                       ),
                     ),
-                  );
-                },
+
+                    // Info button for legal disclaimer
+                    Positioned(
+                      top: 4,
+                      right: 110, // Left of minimize/close buttons
+                      child: _WindowButton(
+                        tooltip: I18n.instance.t('information_label'),
+                        icon: Icons.info_outline,
+                        onPressed: () => _showAboutDialog(context),
+                      ),
+                    ),
+
+                    // Custom title bar with window controls (frameless)
+                    Align(
+                      alignment: Alignment.topCenter,
+                      child: _CustomTitleBar(),
+                    ),
+
+                    // Title group positioned ~10% from the top
+                    Positioned(
+                      top: MediaQuery.of(context).size.height * 0.10,
+                      left: 0,
+                      right: 0,
+                      child: Builder(
+                        builder: (context) {
+                          final size = MediaQuery.of(context).size;
+                          final double titleFontSize = size.shortestSide * 0.15;
+                          // jeszcze mniejszy, responsywny odstęp między tytułem a wersją
+                          final double gap = (titleFontSize * 0.01).clamp(0.5, 4.0);
+                           final textStyle = const TextStyle(
+                            fontFamily: 'Norse',
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                            letterSpacing: 1.2,
+                          ).copyWith(fontSize: titleFontSize);
+
+                          return Column(
+                             mainAxisSize: MainAxisSize.min,
+                             children: [
+                                BlocBuilder<LauncherCubit, LauncherState>(
+                                  builder: (context, state) {
+                                    final title = state.launcherConfig?.serverName ?? I18n.instance.t('app_title');
+                                    return Text(
+                                      title,
+                                      textAlign: TextAlign.center,
+                                      style: textStyle,
+                                    );
+                                  },
+                                ),
+                               SizedBox(height: gap),
+                              // Mały tekst z informacją o wersji aplikacji
+                              // (dynamiczny gap zapewnia mniejszy odstęp na dużych ekranach)
+                              Text(
+                                _appVersion.isNotEmpty ? _appVersion : 'v?',
+                                textAlign: TextAlign.center,
+                                style: textStyle.copyWith(
+                                  fontSize: titleFontSize * 0.22,
+                                  fontWeight: FontWeight.w400,
+                                  color: Colors.white70,
+                                ),
+                              ),
+                             ],
+                           );
+                        },
+                      ),
+                    ),
+
+                    // Info area above START button, anchored ~20% from bottom
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: MediaQuery.of(context).size.height * 0.20,
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Builder(
+                              builder: (context) {
+                                final size = MediaQuery.of(context).size;
+                                final double maxWidth = (size.width * 0.70).clamp(220.0, 900.0);
+                                final double height = (size.shortestSide * 0.05).clamp(32.0, 56.0);
+                                final BorderRadius radius = BorderRadius.circular(height / 2);
+                                return ConstrainedBox(
+                                  constraints: BoxConstraints(maxWidth: maxWidth),
+                                  child: ClipRRect(
+                                    borderRadius: radius,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                                      child: Center(
+                                        child: BlocBuilder<LauncherCubit, LauncherState>(
+                                          builder: (context, state) => Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                state.statusMessage,
+                                                textAlign: TextAlign.center,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontFamily: 'Norse',
+                                                  fontSize: 20,
+                                                  letterSpacing: 1.2,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              // Nazwa pliku przetwarzanego (stała wysokość, zapobiega "skakaniu" UI)
+                                              SizedBox(
+                                                height: 20,
+                                                child: Text(
+                                                  state.progressFileName.isNotEmpty ? state.progressFileName : '',
+                                                  textAlign: TextAlign.center,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    color: Colors.white70,
+                                                    fontSize: 14,
+                                                    fontFamily: 'Norse',
+                                                  ),
+                                              ),
+                                            ),
+                                            if (state.showProgress && state.activeFtpConnections > 0)
+                                              Padding(
+                                                padding: const EdgeInsets.only(top: 4.0),
+                                                child: Text(
+                                                  I18n.instance.t('ftp_status', {
+                                                    'active': '${state.activeFtpConnections}',
+                                                    'allowed': '${state.allowedFtpPool}'
+                                                  }),
+                                                  style: const TextStyle(
+                                                    color: Colors.white70,
+                                                    fontSize: 12,
+                                                    fontFamily: 'Norse',
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 24),
+                            BlocBuilder<LauncherCubit, LauncherState>(
+                              builder: (context, state) {
+                                final enabled = !state.isBusy && state.valheimExePath != null;
+                                return _WinterStartButton(
+                                  onPressed: enabled
+                                      ? () {
+                                          final cubit = context.read<LauncherCubit>();
+                                          if (state.readyToLaunch) {
+                                            cubit.launchGame();
+                                          } else {
+                                            cubit.syncAndPrepare();
+                                          }
+                                        }
+                                      : () {},
+                                  isEnabled: enabled,
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            // Auto-connect switch
+                            BlocBuilder<LauncherCubit, LauncherState>(
+                              builder: (context, state) {
+                                return _AutoConnectSwitch(
+                                  enabled: state.autoConnectEnabled,
+                                  onToggle: () {
+                                    context.read<LauncherCubit>().toggleAutoConnect();
+                                  },
+                                );
+                              },
+                            ),
+                          ],
+                         ),
+                       ),
+                     ),
+
+                    // Footer: Designed with <3 by cygan (link)
+                    BlocBuilder<LauncherCubit, LauncherState>(
+                      builder: (context, state) {
+                        // Jeśli pokazujemy pasek postępu, podnieśmy footer nieco wyżej
+                        // żeby nie przykrywał tekstu postępu. W przeciwnym wypadku trzymajmy
+                        // domyślną pozycję 12 px od dolnej krawędzi.
+                        final double bottomOffset = (state.isBusy && state.showProgress) ? 64.0 : 12.0;
+
+                        return Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: bottomOffset,
+                          child: Center(
+                            child: Opacity(
+                              // lekko przygaszony podczas pracy aplikacji
+                              opacity: (state.isBusy && state.showProgress) ? 0.95 : 1.0,
+                              child: RichText(
+                                text: TextSpan(
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 14,
+                                    fontFamily: 'Norse',
+                                  ),
+                                  children: [
+                                    const TextSpan(text: ''),
+                                    TextSpan(text: '${I18n.instance.t('footer_designed_with')} '),
+                                    const WidgetSpan(
+                                      alignment: PlaceholderAlignment.middle,
+                                      child: Icon(
+                                        Icons.favorite,
+                                        size: 16,
+                                        color: Color(0xFFE53935), // red heart
+                                      ),
+                                    ),
+                                    const TextSpan(text: ' '),
+                                    TextSpan(text: '${I18n.instance.t('footer_by')} '),
+                                    TextSpan(
+                                      text: 'cygan',
+                                      style: const TextStyle(
+                                        color: Color(0xFF64B5F6),
+                                        decoration: TextDecoration.underline,
+                                      ),
+                                      recognizer: _linkRecognizer..onTap = _openLinkedIn,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
 
               // // Trademark / legal notice between footer and progress bar
@@ -469,150 +677,6 @@ class _LauncherScreenState extends State<LauncherScreen> {
               //      );
               //   },
               // ),
-
-              // Info area above START button, anchored ~20% from bottom
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: MediaQuery.of(context).size.height * 0.20,
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Builder(
-                        builder: (context) {
-                          final size = MediaQuery.of(context).size;
-                          final double maxWidth = (size.width * 0.70).clamp(220.0, 900.0);
-                          final double height = (size.shortestSide * 0.05).clamp(32.0, 56.0);
-                          final BorderRadius radius = BorderRadius.circular(height / 2);
-                          return ConstrainedBox(
-                            constraints: BoxConstraints(maxWidth: maxWidth),
-                            child: ClipRRect(
-                              borderRadius: radius,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                                child: Center(
-                                  child: BlocBuilder<LauncherCubit, LauncherState>(
-                                    builder: (context, state) => Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          state.statusMessage,
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontFamily: 'Norse',
-                                            fontSize: 20,
-                                            letterSpacing: 1.2,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        // Nazwa pliku przetwarzanego (stała wysokość, zapobiega "skakaniu" UI)
-                                        SizedBox(
-                                          height: 20,
-                                          child: Text(
-                                            state.progressFileName.isNotEmpty ? state.progressFileName : '',
-                                            textAlign: TextAlign.center,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 14,
-                                              fontFamily: 'Norse',
-                                            ),
-                                        ),
-                                      ),
-                                      if (state.showProgress && state.activeFtpConnections > 0)
-                                        Padding(
-                                          padding: const EdgeInsets.only(top: 4.0),
-                                          child: Text(
-                                            I18n.instance.t('ftp_status', {
-                                              'active': '${state.activeFtpConnections}',
-                                              'allowed': '${state.allowedFtpPool}'
-                                            }),
-                                            style: const TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 12,
-                                              fontFamily: 'Norse',
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 24),
-                      BlocBuilder<LauncherCubit, LauncherState>(
-                        builder: (context, state) {
-                          final enabled = !state.isBusy && state.valheimExePath != null;
-                          return _WinterStartButton(
-                            onPressed: enabled
-                                ? () {
-                                    final cubit = context.read<LauncherCubit>();
-                                    if (state.readyToLaunch) {
-                                      cubit.launchGame();
-                                    } else {
-                                      cubit.syncAndPrepare();
-                                    }
-                                  }
-                                : () {},
-                            isEnabled: enabled,
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      // Auto-connect switch
-                      BlocBuilder<LauncherCubit, LauncherState>(
-                        builder: (context, state) {
-                          return _AutoConnectSwitch(
-                            enabled: state.autoConnectEnabled,
-                            onToggle: () {
-                              context.read<LauncherCubit>().toggleAutoConnect();
-                            },
-                          );
-                        },
-                      ),
-                    ],
-                   ),
-                 ),
-               ),
-
-              // Bottom-right logo with padding 10
-              Positioned(
-                right: 10,
-                bottom: 10,
-                child: Builder(
-                  builder: (context) {
-                    final size = MediaQuery.of(context).size;
-                    final double titleFontSize = size.shortestSide * 0.15;
-                    final textStyle = const TextStyle(
-                      fontFamily: 'Norse',
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                      letterSpacing: 1.2,
-                    ).copyWith(fontSize: titleFontSize);
-
-                    final painter = TextPainter(
-                      text: TextSpan(text: I18n.instance.t('app_title'), style: textStyle),
-                      maxLines: 1,
-                      textDirection: TextDirection.ltr,
-                    )..layout();
-                    final double textWidth = painter.width;
-                    final double logoWidth = (textWidth / 3).clamp(80.0, 400.0);
-
-                    return Image.asset(
-                      'assets/images/valheim.png',
-                      width: logoWidth,
-                      fit: BoxFit.contain,
-                      filterQuality: FilterQuality.high,
-                    );
-                  },
-                ),
-              ),
 
               // Ultra-thin bottom-attached progress strip - visible only while busy
               Positioned(

@@ -40,24 +40,27 @@ No coding required. Fill in the form, click **Generate**, get 3 `.exe` files.
 
 All three are standalone, portable Windows executables. No installation needed.
 
-### Wizard Steps
+### 🖼️ Wizard Steps — Screenshots
 
-```
-Step 1 — Branding     →  Server name, background image/video
-Step 2 — Server       →  Valheim IP, port, password
-Step 3 — FTP          →  FTP host, port, username, password
-Step 4 — Security     →  Generate unique encryption key (salt)
-                              ↓
-                        [ Generate ]
-                              ↓
-              output/{ServerName}/
-              ├── {ServerName} Launcher/
-              │   ├── {ServerName} Launcher.exe
-              │   ├── flutter_windows.dll
-              │   └── data/
-              ├── {ServerName} Patcher/
-              └── {ServerName} Updater/
-```
+#### Step 1 — Branding
+> Set your server name and select a background video/image for the launcher.
+
+![Step 1 — Branding](docs/screenshots/step1_branding.png)
+
+#### Step 2 — Server Details
+> Enter the Valheim game server address (IP:port) and the server password.
+
+![Step 2 — Server](docs/screenshots/step2_server.png)
+
+#### Step 3 — File Server Credentials
+> Configure your FTP/SFTP host, port, username and password. Use **Test Connection** to verify.
+
+![Step 3 — FTP/SFTP](docs/screenshots/step3_ftp.png)
+
+#### Step 4 — Configuration Encryption
+> Generate a unique encryption salt that protects all credentials in the generated executables. The salt is stored in Windows Registry — **losing it means a full reconfiguration.**
+
+![Step 4 — Security](docs/screenshots/step4_security.png)
 
 ### Key Features
 
@@ -68,6 +71,7 @@ Step 4 — Security     →  Generate unique encryption key (salt)
 - 🔄 **Auto-update** — Updater checks FTP version file and downloads newer launcher automatically
 - 🧩 **BepInEx mod sync** — Patcher scans FTP, computes checksums, syncs mods to local Valheim
 - 🔌 **FTP + SFTP** — Auto-detects which protocol the server supports
+- 🎨 **Dynamic icons** — Pixel-art icons generated automatically from server name acronyms
 
 ### Architecture
 
@@ -94,6 +98,32 @@ cd valheim_launcher_generator
 flutter pub get
 flutter run -d windows
 ```
+
+### ⚠️ Disclaimer & Hobby Project Notice
+
+> **This is a hobby project.** Use it at your own risk and with caution.
+>
+> - The author **is not responsible** for any data leaks, server damage, data loss, or any other issues that may arise from using this software.
+> - **Always create regular backups** of your server before using the launcher, patcher, or updater.
+> - The application has been secured to the best of the author's knowledge and abilities, but no software is 100% secure.
+> - The author is **open to suggestions** and improvements — feel free to open an issue or submit a pull request.
+
+### ⚖️ Legal Notice
+
+> **Valheim®** is a registered trademark of **Iron Gate AB**.  
+> This application is an independent, unofficial tool and uses the name "Valheim" solely for the purpose of identifying compatibility.  
+> We do not claim any rights to the Valheim brand or logo.
+
+### 🚫 Attribution — Required
+
+> **Removing the author's name, credits, or the link to this generator from any fork or derivative work is strictly prohibited.**
+>
+> Every generated launcher contains a footer credit:  
+> *Designed with ❤️ by [cygan](https://www.linkedin.com/in/pszym89/)*
+>
+> This attribution **must remain intact** in all forks, copies, and derivative works.  
+> Every generated launcher also includes information that it was created using:  
+> **[Valheim Launcher Generator](https://github.com/PawelSzymanski89/valheim_launcher_generator)**
 
 ### Commercial & Custom Orders
 
@@ -135,24 +165,27 @@ Bez programowania. Wypełnij formularz, kliknij **Generuj**, odbierz 3 pliki `.e
 
 Wszystkie trzy są przenośnymi plikami `.exe` — nie wymagają instalacji.
 
-### Kroki kreatora
+### 🖼️ Kroki kreatora — Zrzuty ekranu
 
-```
-Krok 1 — Branding     →  Nazwa serwera, tło (obraz lub wideo)
-Krok 2 — Serwer       →  Adres IP, port, hasło serwera Valheim
-Krok 3 — FTP          →  Host, port, użytkownik, hasło FTP
-Krok 4 — Bezpiecz.    →  Generowanie unikalnego klucza szyfrującego (salt)
-                              ↓
-                        [ Generuj ]
-                              ↓
-              output/{NazwaSerwera}/
-              ├── {NazwaSerwera} Launcher/
-              │   ├── {NazwaSerwera} Launcher.exe
-              │   ├── flutter_windows.dll
-              │   └── data/
-              ├── {NazwaSerwera} Patcher/
-              └── {NazwaSerwera} Updater/
-```
+#### Krok 1 — Branding
+> Ustaw nazwę swojego serwera i wybierz tło (wideo lub obraz) dla launchera.
+
+![Krok 1 — Branding](docs/screenshots/step1_branding.png)
+
+#### Krok 2 — Dane serwera
+> Wprowadź adres serwera gry Valheim (IP:port) oraz hasło serwera.
+
+![Krok 2 — Serwer](docs/screenshots/step2_server.png)
+
+#### Krok 3 — Dane serwera plików
+> Skonfiguruj host FTP/SFTP, port, nazwę użytkownika i hasło. Użyj **Test Connection** aby zweryfikować połączenie.
+
+![Krok 3 — FTP/SFTP](docs/screenshots/step3_ftp.png)
+
+#### Krok 4 — Szyfrowanie konfiguracji
+> Wygeneruj unikalne ziarno szyfrujące (salt), które zabezpiecza wszystkie dane uwierzytelniające w generowanych plikach wykonywalnych. Salt jest zapisywany w Rejestrze Windows — **jego utrata oznacza pełną rekonfigurację.**
+
+![Krok 4 — Bezpieczeństwo](docs/screenshots/step4_security.png)
 
 ### Kluczowe funkcje
 
@@ -163,6 +196,7 @@ Krok 4 — Bezpiecz.    →  Generowanie unikalnego klucza szyfrującego (salt)
 - 🔄 **Auto-aktualizacja** — updater sprawdza plik wersji na FTP i pobiera nowszą wersję launchera
 - 🧩 **Synchronizacja modów BepInEx** — patcher skanuje FTP, liczy sumy kontrolne, synchronizuje mody
 - 🔌 **FTP + SFTP** — automatyczne wykrycie protokołu serwera
+- 🎨 **Dynamiczne ikony** — pixel-artowe ikony generowane automatycznie z akronimów nazwy serwera
 
 ### Architektura
 
@@ -190,6 +224,32 @@ flutter pub get
 flutter run -d windows
 ```
 
+### ⚠️ Zastrzeżenie — Projekt hobbystyczny
+
+> **To jest projekt hobbystyczny.** Używaj go z rozwagą i na własne ryzyko.
+>
+> - Autor **nie ponosi odpowiedzialności** za wyciek danych, uszkodzenie serwera, utratę danych ani żadne inne problemy wynikające z użytkowania tego oprogramowania.
+> - **Zawsze twórz regularne kopie zapasowe** swojego serwera przed użyciem launchera, patchera lub updatera.
+> - Aplikacja została zabezpieczona zgodnie z najlepszą wiedzą i umiejętnościami autora, ale żadne oprogramowanie nie jest w 100% bezpieczne.
+> - Autor jest **otwarty na sugestie** i ulepszenia — zachęcamy do zgłaszania Issue lub Pull Requestów.
+
+### ⚖️ Nota prawna
+
+> **Valheim®** jest zarejestrowanym znakiem towarowym **Iron Gate AB**.  
+> Niniejsza aplikacja jest niezależnym, nieoficjalnym narzędziem i używa nazwy „Valheim" wyłącznie w celu identyfikacji kompatybilności.  
+> Nie rościmy sobie żadnych praw do marki ani logo Valheim.
+
+### 🚫 Atrybucja — Wymagana
+
+> **Usuwanie imienia autora, informacji o twórcy lub odnośnika do niniejszego generatora z jakiegokolwiek forka lub pracy pochodnej jest surowo zabronione.**
+>
+> Każdy wygenerowany launcher zawiera stopkę:  
+> *Designed with ❤️ by [cygan](https://www.linkedin.com/in/pszym89/)*
+>
+> Ta atrybucja **musi pozostać nienaruszona** we wszystkich forkach, kopiach i pracach pochodnych.  
+> Każdy wygenerowany launcher zawiera również informację, że został utworzony za pomocą:  
+> **[Valheim Launcher Generator](https://github.com/PawelSzymanski89/valheim_launcher_generator)**
+
 ### Kontakt komercyjny
 
 Potrzebujesz dedykowanego launchera dla swojego serwera lub społeczności?
@@ -199,4 +259,4 @@ Potrzebujesz dedykowanego launchera dla swojego serwera lub społeczności?
 
 ---
 
-*MIT © 2024 Paweł Szymański*
+*MIT © 2024–2026 Paweł Szymański*
