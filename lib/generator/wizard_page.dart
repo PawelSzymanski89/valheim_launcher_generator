@@ -531,72 +531,12 @@ class _BottomBar extends StatelessWidget {
   }
 
   void _showSuccessDialog(BuildContext context, String serverName, String? outDir) {
-    final lang = context.read<LangProvider>();
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF0D0B05),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: Color(0xFFD4A017), width: 1.5),
-        ),
-        title: const Row(children: [
-          Icon(Icons.check_circle, color: Color(0xFF4CAF50), size: 24),
-          SizedBox(width: 10),
-          Text('Sukces!', style: TextStyle(color: Color(0xFFD4A017), fontFamily: 'Norse', fontSize: 22)),
-        ]),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Wygenerowano $serverName Launcher, Patcher i Updater.',
-              style: const TextStyle(color: Colors.white70, fontSize: 14),
-            ),
-            if (outDir != null) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black38,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFF2A2010)),
-                ),
-                child: Row(children: [
-                  const Icon(Icons.folder_open, color: Color(0xFFD4A017), size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      outDir,
-                      style: const TextStyle(color: Colors.white54, fontSize: 11, fontFamily: 'monospace'),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ]),
-              ),
-            ],
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Zamknij', style: TextStyle(color: Colors.white54)),
-          ),
-          if (outDir != null)
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFD4A017),
-                foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-              ),
-              icon: const Icon(Icons.folder_open, size: 18),
-              label: const Text('Otwórz folder', style: TextStyle(fontFamily: 'Norse', fontSize: 15)),
-              onPressed: () {
-                Process.run('explorer', [outDir], runInShell: true);
-                Navigator.pop(context);
-              },
-            ),
-        ],
+      builder: (_) => _SuccessDialog(
+        serverName: serverName,
+        outDir: outDir,
+        buildConfig: context.read<GeneratorProvider>().config,
       ),
     );
   }
@@ -631,6 +571,205 @@ class _BottomBar extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── Success Dialog ────────────────────────────────────────────────
+class _SuccessDialog extends StatefulWidget {
+  const _SuccessDialog({
+    required this.serverName,
+    required this.outDir,
+    required this.buildConfig,
+  });
+  final String serverName;
+  final String? outDir;
+  final GeneratorConfig buildConfig;
+
+  @override
+  State<_SuccessDialog> createState() => _SuccessDialogState();
+}
+
+class _SuccessDialogState extends State<_SuccessDialog> {
+  bool _uploading = false;
+  bool _uploadDone = false;
+  bool _uploadOk = false;
+  final List<String> _uploadLog = [];
+
+  Future<void> _upload() async {
+    setState(() {
+      _uploading = true;
+      _uploadLog.clear();
+    });
+
+    final svc = BuildService(
+      config: widget.buildConfig,
+      onLog: (msg) => setState(() => _uploadLog.add(msg)),
+      onProgress: (_) {},
+    );
+
+    final result = await svc.uploadToServer();
+
+    setState(() {
+      _uploading = false;
+      _uploadDone = true;
+      _uploadOk = result.success;
+      if (!result.success && result.error != null) {
+        _uploadLog.add('❌ ${result.error}');
+      } else {
+        _uploadLog.add('');
+        _uploadLog.add('✅ Upload zakończony!');
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF0D0B05),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFFD4A017), width: 1.5),
+      ),
+      title: const Row(children: [
+        Icon(Icons.check_circle, color: Color(0xFF4CAF50), size: 24),
+        SizedBox(width: 10),
+        Text('Sukces!',
+            style: TextStyle(
+                color: Color(0xFFD4A017), fontFamily: 'Norse', fontSize: 22)),
+      ]),
+      content: SizedBox(
+        width: 520,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Wygenerowano ${widget.serverName} Launcher, Patcher i Updater.',
+              style: const TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+            if (widget.outDir != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black38,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFF2A2010)),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.folder_open,
+                      color: Color(0xFFD4A017), size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      widget.outDir!,
+                      style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                          fontFamily: 'monospace'),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ]),
+              ),
+            ],
+            // Upload log
+            if (_uploadLog.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 180),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0A0800),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFF2A2010)),
+                ),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _uploadLog.length,
+                  padding: const EdgeInsets.all(10),
+                  itemBuilder: (_, i) => Text(
+                    _uploadLog[i],
+                    style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                        height: 1.5),
+                  ),
+                ),
+              ),
+            ],
+            if (_uploading) ...[
+              const SizedBox(height: 10),
+              const LinearProgressIndicator(
+                  backgroundColor: Color(0xFF1A1408),
+                  valueColor:
+                      AlwaysStoppedAnimation<Color>(Color(0xFFD4A017))),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Zamknij',
+              style: TextStyle(color: Colors.white54)),
+        ),
+        if (widget.outDir != null && !_uploading)
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1A1408),
+              foregroundColor: const Color(0xFFD4A017),
+              side: const BorderSide(color: Color(0xFFD4A017)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6)),
+            ),
+            icon: const Icon(Icons.folder_open, size: 18),
+            label: const Text('Otwórz folder',
+                style: TextStyle(fontFamily: 'Norse', fontSize: 14)),
+            onPressed: () {
+              Process.run('explorer', [widget.outDir!], runInShell: true);
+            },
+          ),
+        if (!_uploading && !_uploadDone)
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD4A017),
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6)),
+            ),
+            icon: const Icon(Icons.cloud_upload, size: 18),
+            label: const Text('Wgraj na serwer',
+                style: TextStyle(fontFamily: 'Norse', fontSize: 14)),
+            onPressed: _upload,
+          ),
+        if (_uploading)
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Text('Wysyłanie...',
+                style: TextStyle(
+                    color: Color(0xFFD4A017),
+                    fontFamily: 'Norse',
+                    fontSize: 14)),
+          ),
+        if (_uploadDone)
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor:
+                  _uploadOk ? const Color(0xFF2E7D32) : const Color(0xFFB71C1C),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6)),
+            ),
+            icon: Icon(_uploadOk ? Icons.check : Icons.refresh, size: 18),
+            label: Text(_uploadOk ? 'Wysłano!' : 'Spróbuj ponownie',
+                style:
+                    const TextStyle(fontFamily: 'Norse', fontSize: 14)),
+            onPressed: _uploadOk ? null : _upload,
+          ),
+      ],
     );
   }
 }

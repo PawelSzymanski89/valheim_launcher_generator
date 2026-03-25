@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import 'package:dartssh2/dartssh2.dart';
+import 'package:ftpconnect/ftpconnect.dart';
 import 'generator/config_manager.dart';
 import 'utils/crypto_service.dart';
 import 'utils/shared_salt.dart';
@@ -440,7 +442,7 @@ class BuildService {
     await for (final entity in src.list(recursive: false)) {
       final name = p.basename(entity.path);
       if (entity is File) {
-        if (skipFiles.contains(name)) continue; // already copied as renamed
+        if (skipFiles.contains(name)) continue;
         final destFile = File(p.join(dest.path, name));
         await entity.copy(destFile.path);
       } else if (entity is Directory) {
@@ -449,6 +451,130 @@ class BuildService {
         await _copyDirContents(entity, subDest);
       }
     }
+  }
+
+  // ── Upload to server ─────────────────────────────────────────────────────
+
+  /// Uploads [serverName] Launcher.exe + Updater.exe + version manifests
+  /// to `launcher_files/` on the configured FTP/SFTP server.
+  Future<({bool success, String? error})> uploadToServer() async {
+    const remoteDir = 'launcher_files';
+    final isSftp = config.ftpPort == 22 || config.ftpPort == 2022;
+
+    // Discover files to upload
+    final List<({File file, String remoteName})> uploads = [];
+
+    for (final alias in [
+      (label: '${config.serverName} Launcher', isLauncher: true),
+      (label: '${config.serverName} Updater',  isLauncher: false),
+    ]) {
+      final exeFile = File(p.join(_outputRoot, config.serverName, alias.label, '${alias.label}.exe'));
+      if (!await exeFile.exists()) {
+        onLog('⚠️  Pominięto (brak pliku): ${exeFile.path}');
+        continue;
+      }
+      uploads.add((file: exeFile, remoteName: '${alias.label}.exe'));
+
+      // Version manifest
+      final modDir = alias.isLauncher
+          ? p.join(_modulesRoot, 'launcher_module')
+          : p.join(_modulesRoot, 'updater_module');
+      final version = _readVersion(modDir);
+      final vName = alias.isLauncher ? 'launcher_version.txt' : 'updater_version.txt';
+      final tmpFile = File(p.join(Directory.systemTemp.path, vName));
+      await tmpFile.writeAsString(version, flush: true);
+      uploads.add((file: tmpFile, remoteName: vName));
+      onLog('  📄 $vName → $version');
+    }
+
+    if (uploads.isEmpty) {
+      return (success: false, error: 'Brak plików do wysłania. Czy build zakończył się sukcesem?');
+    }
+
+    onLog('');
+    onLog('🚀 Łączę z ${config.ftpHost}:${config.ftpPort} (${isSftp ? "SFTP" : "FTP"})...');
+
+    try {
+      if (isSftp) {
+        return await _uploadSftp(remoteDir, uploads);
+      } else {
+        return await _uploadFtp(remoteDir, uploads);
+      }
+    } catch (e) {
+      return (success: false, error: '$e');
+    }
+  }
+
+  String _readVersion(String modDir) {
+    try {
+      final content = File(p.join(modDir, 'pubspec.yaml')).readAsStringSync();
+      final m = RegExp(r'^version:\s*(.+)$', multiLine: true).firstMatch(content);
+      return m?.group(1)?.trim() ?? '1.0.0+0';
+    } catch (_) {
+      return '1.0.0+0';
+    }
+  }
+
+  Future<({bool success, String? error})> _uploadSftp(
+      String remoteDir, List<({File file, String remoteName})> uploads) async {
+    final socket = await SSHSocket.connect(config.ftpHost, config.ftpPort,
+        timeout: const Duration(seconds: 15));
+    final client = SSHClient(socket,
+        username: config.ftpUser, onPasswordRequest: () => config.ftpPassword);
+    await client.authenticated;
+    final sftp = await client.sftp();
+
+    try {
+      await sftp.mkdir(remoteDir).catchError((_) {});
+      for (final u in uploads) {
+        onLog('  ⬆️  ${u.remoteName}...');
+        final remote = await sftp.open(
+          '$remoteDir/${u.remoteName}',
+          mode: SftpFileOpenMode.create | SftpFileOpenMode.write | SftpFileOpenMode.truncate,
+        );
+        await remote.write(u.file.openRead().cast());
+        await remote.close();
+        onLog('     ✅ ${u.remoteName} (${_fmtSize(await u.file.length())})');
+      }
+    } finally {
+      sftp.close();
+      client.close();
+    }
+    return (success: true, error: null);
+  }
+
+  Future<({bool success, String? error})> _uploadFtp(
+      String remoteDir, List<({File file, String remoteName})> uploads) async {
+    final ftp = FTPConnect(
+      config.ftpHost,
+      user: config.ftpUser,
+      pass: config.ftpPassword,
+      port: config.ftpPort,
+      timeout: 20,
+    );
+    await ftp.connect();
+    try {
+      await ftp.makeDirectory(remoteDir).catchError((_) => false);
+      await ftp.changeDirectory(remoteDir);
+      for (final u in uploads) {
+        onLog('  ⬆️  ${u.remoteName}...');
+        final ok = await ftp.uploadFile(u.file, sRemoteName: u.remoteName);
+        if (ok) {
+          onLog('     ✅ ${u.remoteName} (${_fmtSize(await u.file.length())})');
+        } else {
+          onLog('     ❌ Błąd wysyłania ${u.remoteName}');
+        }
+      }
+    } finally {
+      await ftp.disconnect();
+    }
+    return (success: true, error: null);
+  }
+
+  String _fmtSize(int bytes) {
+    if (bytes < 1024) return '${bytes}B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)}KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
   }
 }
 
