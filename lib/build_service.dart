@@ -114,6 +114,17 @@ class BuildService {
   String get _modulesRoot => p.join(_generatorRoot, 'lib', 'modules');
   String get _outputRoot => p.join(_generatorRoot, 'output');
   String get _profilesRoot => p.join(_generatorRoot, 'profiles');
+  String get _templatesRoot => p.join(_generatorRoot, 'templates');
+
+  /// Returns true if pre-compiled templates exist for all 3 modules.
+  bool get _hasTemplates {
+    const templateNames = ['launcher', 'patcher', 'updater'];
+    for (final name in templateNames) {
+      final templateDir = Directory(p.join(_templatesRoot, name));
+      if (!templateDir.existsSync()) return false;
+    }
+    return true;
+  }
 
   /// On Windows, MSBuild fails when paths exceed 260 chars.
   /// We create a junction from C:\vlg\{l|p|u} → actual module path.
@@ -156,40 +167,44 @@ class BuildService {
   }
 
   /// Main entry point — runs the full build pipeline.
-  /// Returns list of results for each module.
+  /// Automatically detects template mode (pre-compiled) vs legacy flutter build.
   Future<List<ModuleBuildResult>> run() async {
     final results = <ModuleBuildResult>[];
     double prog = 0.0;
 
-    // ── Flutter pre-check ─────────────────────────────────────────
-    onLog('🔍 Sprawdzam Flutter SDK...');
-    final flutterCheck = await Process.run(
-      'flutter', ['--version', '--machine'],
-      runInShell: true,
-    );
-    if (flutterCheck.exitCode != 0) {
-      onLog('');
-      onLog('❌ Flutter SDK nie znaleziony w PATH!');
-      onLog('');
-      onLog('  Generator wymaga zainstalowanego Flutter SDK:');
-      onLog('  1. Pobierz: https://docs.flutter.dev/get-started/install/windows');
-      onLog('  2. Rozpakuj i dodaj flutter\\bin do zmiennej PATH');
-      onLog('  3. Uruchom: flutter doctor -v');
-      onLog('  4. Wymagane: Visual Studio 2022 z C++ desktop');
-      onLog('');
-      results.add(ModuleBuildResult(
-        moduleName: 'flutter_check',
-        success: false,
-        error: 'Flutter SDK nie znaleziony w PATH. Zainstaluj Flutter i spróbuj ponownie.',
-      ));
-      return results;
-    }
-    // Extract version from JSON output
-    try {
-      final versionInfo = jsonDecode(flutterCheck.stdout as String) as Map;
-      onLog('  ✅ Flutter ${versionInfo['frameworkVersion']} (Dart ${versionInfo['dartSdkVersion']})');
-    } catch (_) {
-      onLog('  ✅ Flutter SDK znaleziony');
+    final useTemplates = _hasTemplates;
+
+    if (useTemplates) {
+      onLog('⚡ Tryb PRE-COMPILED — szablony znalezione w templates/');
+      onLog('   (Flutter SDK nie jest wymagany)');
+    } else {
+      // ── Flutter pre-check (legacy mode only) ───────────────────
+      onLog('🔍 Sprawdzam Flutter SDK (brak szablonów – tryb kompilacji)...');
+      final flutterCheck = await Process.run(
+        'flutter', ['--version', '--machine'],
+        runInShell: true,
+      );
+      if (flutterCheck.exitCode != 0) {
+        onLog('');
+        onLog('❌ Flutter SDK nie znaleziony w PATH!');
+        onLog('');
+        onLog('  Brak szablonów w templates/ i brak Flutter SDK.');
+        onLog('  Opcja A: uruchom scripts/build_templates.ps1 (jednorazowo)');
+        onLog('  Opcja B: zainstaluj Flutter SDK');
+        onLog('');
+        results.add(ModuleBuildResult(
+          moduleName: 'flutter_check',
+          success: false,
+          error: 'Brak szablonów i brak Flutter SDK. Uruchom scripts/build_templates.ps1 lub zainstaluj Flutter.',
+        ));
+        return results;
+      }
+      try {
+        final versionInfo = jsonDecode(flutterCheck.stdout as String) as Map;
+        onLog('  ✅ Flutter ${versionInfo['frameworkVersion']} (Dart ${versionInfo['dartSdkVersion']})');
+      } catch (_) {
+        onLog('  ✅ Flutter SDK znaleziony');
+      }
     }
     onProgress(prog += 0.02);
 
@@ -208,6 +223,9 @@ class BuildService {
       await SharedSalt.save(config.salt);
       onLog('🔑 Salt zapisany w rejestrze.');
     }
+
+    // Encrypted salt for manifest.sig
+    final encryptedSalt = CryptoService.encryptSalt(config.salt);
 
     final modules = [
       _ModuleSpec(
@@ -237,8 +255,10 @@ class BuildService {
     ];
 
     for (final mod in modules) {
-      onLog('\n📦 Budowanie ${mod.outputAs}.exe...');
-      final result = await _buildModule(mod, encryptedPayload);
+      onLog('\n📦 ${useTemplates ? "Generowanie" : "Budowanie"} ${mod.outputAs}.exe...');
+      final result = useTemplates
+          ? await _buildModuleFromTemplate(mod, encryptedPayload, encryptedSalt)
+          : await _buildModule(mod, encryptedPayload);
       results.add(result);
       prog += mod.weight;
       onProgress(prog.clamp(0.0, 0.95));
@@ -246,7 +266,6 @@ class BuildService {
         onLog('  ✅ ${mod.outputAs}.exe → ${result.exePath}');
       } else {
         onLog('  ❌ Błąd ${mod.name}: ${result.error}');
-        // Stop immediately on first failure
         onProgress(1.0);
         return results;
       }
@@ -254,6 +273,156 @@ class BuildService {
 
     onProgress(1.0);
     return results;
+  }
+
+  // ── Pre-compiled template build ─────────────────────────────────
+
+  /// Builds a module from a pre-compiled template:
+  /// 1. Copies template to output folder
+  /// 2. Replaces config_encrypted.json and manifest.sig in flutter_assets
+  /// 3. Replaces background video (launcher only)
+  /// 4. Generates and replaces logo icon
+  /// 5. Renames the exe
+  Future<ModuleBuildResult> _buildModuleFromTemplate(
+    _ModuleSpec mod,
+    String encryptedPayload,
+    String encryptedSalt,
+  ) async {
+    try {
+      final templateDir = Directory(p.join(_templatesRoot, mod.name));
+      if (!templateDir.existsSync()) {
+        return ModuleBuildResult(
+          moduleName: mod.name,
+          success: false,
+          error: 'Szablon nie istnieje: ${templateDir.path}',
+        );
+      }
+
+      // Determine version from template's launcher module pubspec
+      final releaseVersion = _readVersion(p.join(_modulesRoot, 'launcher_module'));
+      final outDir = Directory(p.join(_outputRoot, config.serverName, 'v$releaseVersion', mod.outputAs));
+
+      // 1. Copy entire template to output
+      onLog('  📋 Kopiowanie szablonu ${mod.name}...');
+      if (await outDir.exists()) {
+        await outDir.delete(recursive: true);
+      }
+      await outDir.create(recursive: true);
+      await _copyDirContents(templateDir, outDir);
+
+      // 2. Locate flutter_assets in the copied output
+      final assetsPath = p.join(outDir.path, 'data', 'flutter_assets', 'assets');
+      final assetsDir = Directory(assetsPath);
+      if (!await assetsDir.exists()) {
+        await assetsDir.create(recursive: true);
+      }
+
+      // 3. Inject config_encrypted.json
+      onLog('  📝 Wstrzykuję config_encrypted.json...');
+      await File(p.join(assetsPath, 'config_encrypted.json'))
+          .writeAsString(encryptedPayload);
+
+      // 4. Inject manifest.sig (encrypted salt)
+      onLog('  🔐 Wstrzykuję manifest.sig...');
+      await File(p.join(assetsPath, 'manifest.sig'))
+          .writeAsString(encryptedSalt);
+
+      // 5. Inject background video (launcher only)
+      if (mod.name == 'launcher' && config.backgroundPath.isNotEmpty) {
+        final bgSrc = File(config.backgroundPath);
+        if (await bgSrc.exists()) {
+          final videoDir = Directory(p.join(assetsPath, 'video'));
+          await videoDir.create(recursive: true);
+          final destPath = p.join(videoDir.path, 'background.mp4');
+
+          onLog('  🎬 Kompresja tła ffmpeg: ${p.basename(config.backgroundPath)}...');
+          final compressResult = await _compressVideo(config.backgroundPath, destPath);
+          if (compressResult) {
+            final srcSize = await bgSrc.length();
+            final destSize = await File(destPath).length();
+            onLog('  🎬 Tło skompresowane: ${_fmtSize(srcSize)} → ${_fmtSize(destSize)}');
+          } else {
+            onLog('  ⚠️ ffmpeg niedostępny — kopiuję tło bez kompresji');
+            await bgSrc.copy(destPath);
+          }
+        } else {
+          onLog('  ⚠️ Plik tła nie istnieje: ${config.backgroundPath}');
+        }
+      }
+
+      // 6. Generate and inject logo icon
+      onLog('  🎨 Generowanie ikony...');
+      final imgDir = Directory(p.join(assetsPath, 'images'));
+      await imgDir.create(recursive: true);
+      await _generateIconToDir(mod, imgDir);
+
+      // 7. Rename exe to output name
+      final srcExe = File(p.join(outDir.path, '${mod.exeName}.exe'));
+      final destExe = File(p.join(outDir.path, '${mod.outputAs}.exe'));
+      if (await srcExe.exists()) {
+        await srcExe.rename(destExe.path);
+      }
+
+      onLog('  📁 Output: v$releaseVersion/${mod.outputAs}/');
+      return ModuleBuildResult(
+        moduleName: mod.name,
+        success: true,
+        exePath: destExe.path,
+      );
+    } catch (e) {
+      return ModuleBuildResult(
+        moduleName: mod.name,
+        success: false,
+        error: '$e',
+      );
+    }
+  }
+
+  /// Generates icon directly to a target directory (for template mode).
+  Future<void> _generateIconToDir(_ModuleSpec mod, Directory imgDir) async {
+    try {
+      final nameParts = config.serverName.split(RegExp(r'\s+'));
+      String acronym = '';
+      for (var p_ in nameParts) {
+        if (p_.isNotEmpty) acronym += p_[0].toUpperCase();
+      }
+      if (mod.name.toLowerCase().contains('launcher')) acronym += 'L';
+      else if (mod.name.toLowerCase().contains('patcher')) acronym += 'P';
+      else if (mod.name.toLowerCase().contains('updater')) acronym += 'U';
+
+      final outputPath = p.join(imgDir.path, 'logo.png');
+      final fontPath = p.join(_generatorRoot, 'assets', 'fonts', 'Norsebold.otf');
+      final scriptPath = p.join(_generatorRoot, 'scripts', 'generate_icon.ps1');
+
+      final result = await Process.run(
+        'powershell',
+        [
+          '-ExecutionPolicy', 'Bypass',
+          '-File', scriptPath,
+          '-Text', acronym,
+          '-OutputPath', outputPath,
+          '-FontPath', fontPath,
+          '-Size', '256',
+        ],
+        workingDirectory: _generatorRoot,
+        runInShell: true,
+      );
+
+      if (result.exitCode != 0) {
+        onLog('  ⚠️ PowerShell icon error: ${result.stderr}');
+        return;
+      }
+
+      // Launcher needs valheim.png for backward compat
+      if (mod.name == 'launcher') {
+        final logoBytes = await File(outputPath).readAsBytes();
+        await File(p.join(imgDir.path, 'valheim.png')).writeAsBytes(logoBytes);
+      }
+
+      onLog('  🎨 Ikona wygenerowana: $acronym (Norse Bold)');
+    } catch (e) {
+      onLog('  ⚠️ Błąd generowania ikony: $e');
+    }
   }
 
   Future<void> _saveProfile(String encryptedPayload) async {

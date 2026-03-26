@@ -60,3 +60,6 @@ ValheimLauncherGenerator_*.zip
 
 # Bundled tools (ffmpeg binary — too large for git)
 tools/
+
+# Pre-compiled templates (built once via scripts/build_templates.ps1)
+templates/

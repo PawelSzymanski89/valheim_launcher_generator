@@ -4,6 +4,7 @@ import 'ftp_service.dart';
 import 'file_info.dart';
 import 'file_stats.dart';
 import 'file_cache.dart';
+import 'crypto_config.dart';
 import 'i18n.dart';
 
 void main() {
@@ -17,14 +18,21 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  // This value is replaced by the build script
-  static const String buildServerName = 'Januszheim'; 
-  String _serverName = buildServerName;
+  // Server name loaded from encrypted config at runtime (no recompilation needed)
+  String _serverName = 'Server';
   Locale _locale = I18n.instance.locale;
 
   @override
   void initState() {
     super.initState();
+    _loadServerName();
+  }
+
+  Future<void> _loadServerName() async {
+    final config = await loadDecryptedConfig();
+    if (config != null && config.serverName.isNotEmpty && mounted) {
+      setState(() => _serverName = config.serverName);
+    }
   }
 
   void _toggleLanguage() {
