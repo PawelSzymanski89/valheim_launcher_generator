@@ -314,14 +314,22 @@ class BuildService {
         if (await bgSrc.exists()) {
           final videoDir = Directory(p.join(assetsDir.path, 'video'));
           await videoDir.create(recursive: true);
-          final bgExt = p.extension(config.backgroundPath);
-          final destName = 'background$bgExt';
-          await bgSrc.copy(p.join(videoDir.path, destName));
-          // If extension differs from .mp4, also copy as background.mp4 alias
-          if (bgExt.toLowerCase() != '.mp4') {
-            await bgSrc.copy(p.join(videoDir.path, 'background.mp4'));
+          final destPath = p.join(videoDir.path, 'background.mp4');
+
+          // Compress video with ffmpeg for optimal launcher performance
+          // (scales to 1280x720, H.264 CRF 28, max 5Mbps, no audio, faststart)
+          onLog('  🎬 Kompresja tła ffmpeg: ${p.basename(config.backgroundPath)}...');
+          final compressResult = await _compressVideo(config.backgroundPath, destPath);
+          if (compressResult) {
+            final srcSize = await bgSrc.length();
+            final destSize = await File(destPath).length();
+            onLog('  🎬 Tło skompresowane: ${_fmtSize(srcSize)} → ${_fmtSize(destSize)}');
+          } else {
+            // Fallback: copy as-is if ffmpeg fails
+            onLog('  ⚠️ ffmpeg niedostępny — kopiuję tło bez kompresji');
+            await bgSrc.copy(destPath);
+            onLog('  🎬 Tło skopiowane: ${p.basename(config.backgroundPath)}');
           }
-          onLog('  🎬 Tło wstrzyknięte: ${p.basename(config.backgroundPath)}');
         } else {
           onLog('  ⚠️ Plik tła nie istnieje: ${config.backgroundPath}');
         }
@@ -735,6 +743,44 @@ class BuildService {
       onLog('  🎨 Ikona wygenerowana: $acronym (Norse Bold)');
     } catch (e) {
       onLog('  ⚠️ Błąd generowania ikony: $e');
+    }
+  }
+
+  /// Kompresuje wideo ffmpeg do optymalnego formatu dla launchera.
+  /// Zwraca true jeśli kompresja się powiodła, false jeśli ffmpeg niedostępny.
+  Future<bool> _compressVideo(String srcPath, String destPath) async {
+    try {
+      // Check if ffmpeg is available
+      final check = await Process.run('ffmpeg', ['-version'], runInShell: true);
+      if (check.exitCode != 0) return false;
+    } catch (_) {
+      return false;
+    }
+
+    try {
+      final result = await Process.run(
+        'ffmpeg',
+        [
+          '-y',                          // overwrite output
+          '-i', srcPath,                 // input
+          '-vf', 'scale=1280:720',       // match launcher window size
+          '-c:v', 'libx264',             // H.264 codec (best hw decode support)
+          '-preset', 'slow',             // better compression
+          '-crf', '28',                  // quality (lower = better, 28 is good for BG)
+          '-b:v', '4M',                  // target bitrate
+          '-maxrate', '5M',              // max bitrate cap
+          '-bufsize', '8M',              // buffer size
+          '-an',                         // strip audio (muted in launcher)
+          '-movflags', '+faststart',     // streaming-friendly
+          '-pix_fmt', 'yuv420p',         // max compatibility
+          destPath,
+        ],
+        runInShell: true,
+      );
+      return result.exitCode == 0;
+    } catch (e) {
+      onLog('  ⚠️ ffmpeg error: $e');
+      return false;
     }
   }
 
