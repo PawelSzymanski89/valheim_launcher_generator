@@ -70,15 +70,14 @@ New-Item -ItemType Directory -Path $StagingDir -Force | Out-Null
 Copy-Item "$ReleaseDir\*" -Destination $StagingDir -Recurse -Force
 
 # Copy required source directories that generator needs at runtime:
-# - lib/modules/ (module source code for flutter build)
+# - templates/ (pre-compiled modules for instant generation)
 # - scripts/ (icon generation, etc.)
 # - assets/ (fonts, images)
-$RuntimeDirs = @('lib\modules', 'scripts', 'assets', 'profiles')
+$RuntimeDirs = @('templates', 'scripts', 'assets', 'profiles')
 foreach ($dir in $RuntimeDirs) {
-    $src = Join-Path $ProjectRoot $dir
-    if (Test-Path $src) {
+    if (Test-Path $dir) {
         $dest = Join-Path $StagingDir $dir
-        Copy-Item $src -Destination $dest -Recurse -Force
+        Copy-Item $dir -Destination $dest -Recurse -Force
     }
 }
 

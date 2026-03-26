@@ -23,6 +23,10 @@
 
 </div>
 
+<br>
+<img src="docs/screenshots/launcher_preview.png" alt="Generated Valheim Launcher" width="800"/>
+<br>
+
 ### What is this?
 
 **Valheim Launcher Generator** is a Windows desktop application built with Flutter.  
@@ -148,6 +152,10 @@ Need a custom-branded launcher suite for your server or community?
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 </div>
+
+<br>
+<img src="docs/screenshots/launcher_preview.png" alt="Wygenerowany Valheim Launcher" width="800"/>
+<br>
 
 ### Co to jest?
 
