@@ -746,20 +746,48 @@ class BuildService {
     }
   }
 
+  /// Resolves the path to ffmpeg executable.
+  /// Priority: bundled tools/ffmpeg.exe → system PATH → null.
+  String? _resolveFfmpeg() {
+    // 1. Bundled: {generatorRoot}/tools/ffmpeg.exe (dev mode)
+    final bundledDev = File(p.join(_generatorRoot, 'tools', 'ffmpeg.exe'));
+    if (bundledDev.existsSync()) return bundledDev.path;
+
+    // 2. Bundled: {exeDir}/tools/ffmpeg.exe (distributed ZIP)
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+    final bundledDist = File(p.join(exeDir, 'tools', 'ffmpeg.exe'));
+    if (bundledDist.existsSync()) return bundledDist.path;
+
+    // 3. Bundled: {exeDir}/../tools/ffmpeg.exe (one level up)
+    final bundledUp = File(p.join(exeDir, '..', 'tools', 'ffmpeg.exe'));
+    if (bundledUp.existsSync()) return bundledUp.path;
+
+    // 4. System PATH fallback
+    try {
+      final check = Process.runSync('where', ['ffmpeg'], runInShell: true);
+      if (check.exitCode == 0) return 'ffmpeg'; // found in PATH
+    } catch (_) {}
+
+    return null; // not found anywhere
+  }
+
   /// Kompresuje wideo ffmpeg do optymalnego formatu dla launchera.
   /// Zwraca true jeśli kompresja się powiodła, false jeśli ffmpeg niedostępny.
   Future<bool> _compressVideo(String srcPath, String destPath) async {
-    try {
-      // Check if ffmpeg is available
-      final check = await Process.run('ffmpeg', ['-version'], runInShell: true);
-      if (check.exitCode != 0) return false;
-    } catch (_) {
+    final ffmpeg = _resolveFfmpeg();
+    if (ffmpeg == null) {
+      onLog('  ⚠️ ffmpeg nie znaleziony (tools/ffmpeg.exe ani w PATH)');
       return false;
+    }
+
+    // Log which ffmpeg we're using
+    if (ffmpeg != 'ffmpeg') {
+      onLog('  🔧 Używam bundled ffmpeg: ${p.basename(p.dirname(ffmpeg))}/${p.basename(ffmpeg)}');
     }
 
     try {
       final result = await Process.run(
-        'ffmpeg',
+        ffmpeg,
         [
           '-y',                          // overwrite output
           '-i', srcPath,                 // input
