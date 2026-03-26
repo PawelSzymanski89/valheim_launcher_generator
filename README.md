@@ -28,7 +28,7 @@
 **Valheim Launcher Generator** is a Windows desktop application built with Flutter.  
 It's a 4-step wizard that lets any private server admin generate a branded, ready-to-distribute set of **3 standalone executables** — configured and encrypted specifically for their server.
 
-No coding required. Fill in the form, click **Generate**, get 3 `.exe` files.
+**Completely Self-Contained**: Thanks to a pre-compiled template architecture, generating a custom launcher takes **seconds** and **requires NO programming knowledge or Flutter SDK**. Fill in the form, click **Generate**, get 3 `.exe` files.
 
 ### Generated Suite
 
@@ -64,8 +64,9 @@ All three are standalone, portable Windows executables. No installation needed.
 
 ### Key Features
 
+- ⚡ **Instant Generation** — Pre-compiled template architecture generates launchers in seconds without needing the Flutter SDK setup
+- 🎬 **Optimized Video Background** — Bundled FFmpeg automatically compresses user `.mp4` backgrounds for smooth, stutter-free performance
 - 🔐 **Encrypted credentials** — FTP passwords and server data are XOR-encrypted with SHA-256, never stored as plaintext
-- 🎬 **Video background** — Launcher supports animated `.mp4` background per server branding
 - 🌍 **Multilingual** — Polish / English (i18n via ARB)
 - 📦 **Portable executables** — Each app runs standalone, no runtime required
 - 🔄 **Auto-update** — Updater checks FTP version file and downloads newer launcher automatically
@@ -153,7 +154,7 @@ Need a custom-branded launcher suite for your server or community?
 **Valheim Launcher Generator** to desktopowa aplikacja Windows zbudowana we Flutterze.  
 Działa jako kreator (wizard) w 4 krokach, który pozwala administratorowi prywatnego serwera Valheim wygenerować gotowy, markowy zestaw **3 samodzielnych plików `.exe`** — skonfigurowanych i zaszyfrowanych pod jego konkretny serwer.
 
-Bez programowania. Wypełnij formularz, kliknij **Generuj**, odbierz 3 pliki `.exe`.
+**W pełni samodzielny**: Dzięki architekturze wstępnie skompilowanych szablonów, generowanie niestandardowego launchera zajmuje **sekundy** i **nie wymaga wiedzy programistycznej ani Flutter SDK**. Wypełnij formularz, kliknij **Generuj**, odbierz 3 pliki `.exe`.
 
 ### Generowane aplikacje
 
@@ -189,8 +190,9 @@ Wszystkie trzy są przenośnymi plikami `.exe` — nie wymagają instalacji.
 
 ### Kluczowe funkcje
 
+- ⚡ **Błyskawiczne generowanie** — Architektura skompilowanych szablonów generuje pliki w kilka sekund; brak wymogu instalacji Flutter SDK
+- 🎬 **Zoptymalizowane Tło Wideo** — Wbudowany w paczkę FFmpeg automatycznie kompresuje tło wideo dla maksymalnej płynności (bez klatkowania)
 - 🔐 **Szyfrowanie** — hasła FTP i dane serwera zaszyfrowane XOR+SHA-256, brak plaintextu w binarce
-- 🎬 **Wideo w tle** — launcher obsługuje animowane tło `.mp4`, personalizowane dla każdego serwera
 - 🌍 **Wielojęzyczność** — Polski / Angielski (i18n via ARB)
 - 📦 **Przenośne exe** — każda aplikacja działa samodzielnie bez instalacji
 - 🔄 **Auto-aktualizacja** — updater sprawdza plik wersji na FTP i pobiera nowszą wersję launchera
