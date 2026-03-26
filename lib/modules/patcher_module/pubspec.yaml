@@ -2,7 +2,7 @@ name: server_patcher
 description: "Valheim Launcher Patcher — patcher wygenerowany przez Valheim Launcher Generator."
 publish_to: 'none'
 
-version: 1.0.0+7
+version: 1.0.6+20
 
 environment:
   sdk: ^3.9.2
@@ -29,7 +29,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/ftp.json
+    - assets/manifest.sig
     - assets/config_encrypted.json
     - assets/manifest.sig
     - assets/patch_config.json

@@ -4,6 +4,8 @@ import 'ftp_service.dart';
 import 'file_info.dart';
 import 'file_stats.dart';
 import 'file_cache.dart';
+import 'i18n.dart';
+
 void main() {
   runApp(const MyApp());
 }
@@ -16,13 +18,21 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   // This value is replaced by the build script
-  static const String buildServerName = 'AURORA BOREALIS'; 
-  String _serverName = 'Patch Builder';
+  static const String buildServerName = 'Januszheim'; 
+  String _serverName = buildServerName;
+  Locale _locale = I18n.instance.locale;
 
   @override
   void initState() {
     super.initState();
-    _serverName = '$buildServerName Patch Builder';
+  }
+
+  void _toggleLanguage() {
+    setState(() {
+      final newLang = _locale.languageCode == 'pl' ? 'en' : 'pl';
+      I18n.instance.setLocale(newLang);
+      _locale = I18n.instance.locale;
+    });
   }
 
   @override
@@ -105,14 +115,22 @@ class _MyAppState extends State<MyApp> {
         ),
         dividerColor: const Color(0xFF2A2010),
       ),
-      home: FtpFilesPage(title: '$_serverName'),
+      home: FtpFilesPage(
+        title: _serverName,
+        onLanguageToggle: _toggleLanguage,
+      ),
     );
   }
 }
 
 class FtpFilesPage extends StatefulWidget {
-  const FtpFilesPage({super.key, required this.title});
+  const FtpFilesPage({
+    super.key,
+    required this.title,
+    required this.onLanguageToggle,
+  });
   final String title;
+  final VoidCallback onLanguageToggle;
   @override
   State<FtpFilesPage> createState() => _FtpFilesPageState();
 }
@@ -172,7 +190,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
       _startIndexing();
     } catch (e) {
       setState(() {
-        _errorMessage = 'Blad: $e';
+        _errorMessage = '${I18n.instance.t('error')}: $e';
         _isLoading = false;
         _isLoadingStats = false;
       });
@@ -235,41 +253,41 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
       context: context,
       barrierColor: Colors.black87,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A1A),
+        backgroundColor: const Color(0xFF1A1410),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: Color(0xFF444444), width: 1),
+          borderRadius: BorderRadius.circular(6),
+          side: const BorderSide(color: Color(0xFF2A2010), width: 1),
         ),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.info_outline, color: Colors.blueAccent),
-            SizedBox(width: 12),
-            Text('Informacja / Information',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
+            const Icon(Icons.info_outline, color: Color(0xFFD4A017)),
+            const SizedBox(width: 12),
+            Text(I18n.instance.t('legal_notice'),
+                style: const TextStyle(
+                    color: Color(0xFFD4A017),
+                    fontSize: 20,
                     fontFamily: 'Norse')),
           ],
         ),
-        content: const Column(
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Valheim® jest zarejestrowanym znakiem towarowym Iron Gate AB. '
-              'Niniejsza aplikacja jest niezależnym narzędziem i używa nazwy '
-              'Valheim wyłącznie w celu identyfikacji.\n\n'
-              'Valheim® is a registered trademark of Iron Gate AB. '
-              'This application is an independent, unofficial tool used '
-              'solely for identification purposes.',
-              style: TextStyle(
+              I18n.instance.t('about_line1'),
+              style: const TextStyle(
                   color: Colors.white70, fontSize: 13, height: 1.4),
             ),
-            Divider(height: 24, color: Colors.white12),
+            const SizedBox(height: 8),
             Text(
-              'Patcher created with Valheim Launcher Generator\n'
-              'https://github.com/PawelSzymanski89/valheim_launcher_generator',
-              style: TextStyle(
+              I18n.instance.t('about_line2'),
+              style: const TextStyle(
+                  color: Colors.white70, fontSize: 13, height: 1.4),
+            ),
+            const Divider(height: 24, color: Color(0xFF2A2010)),
+            Text(
+              I18n.instance.t('created_with'),
+              style: const TextStyle(
                   color: Colors.white38, fontSize: 11, fontFamily: 'Norse'),
             ),
           ],
@@ -279,7 +297,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
             onPressed: () => Navigator.pop(context),
             child: const Text('OK',
                 style:
-                    TextStyle(color: Colors.blueAccent, fontFamily: 'Norse')),
+                    TextStyle(color: Color(0xFFD4A017), fontFamily: 'Norse')),
           ),
         ],
       ),
@@ -304,7 +322,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Blad: $e';
+        _errorMessage = '${I18n.instance.t('error')}: $e';
         _isLoading = false;
         _currentPath = _ftpService.getParentPath(_currentPath);
       });
@@ -328,7 +346,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Blad: $e';
+        _errorMessage = '${I18n.instance.t('error')}: $e';
         _isLoading = false;
       });
     }
@@ -347,7 +365,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
 
     if (_generatedJson == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Błąd: JSON nie jest gotowy. Poczekaj na zakończenie skanowania.')),
+        SnackBar(content: Text(I18n.instance.t('json_not_ready'))),
       );
       return;
     }
@@ -363,14 +381,14 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
       if (!mounted) return;
       if (path.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Błąd: Nie udało się zapisać JSON na dysku')),
+          SnackBar(content: Text(I18n.instance.t('json_save_error'))),
         );
         return;
       }
 
       print('[UI] JSON zapisany: $path');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('✓ JSON zapisany:\n$path')),
+        SnackBar(content: Text('${I18n.instance.t('json_saved')}\n$path')),
       );
     } catch (e) {
       setState(() => _isUploadingJson = false);
@@ -385,7 +403,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
   Future<void> _uploadJsonToBepInEx() async {
     if (_generatedJson == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Najpierw zapisz JSON')),
+        SnackBar(content: Text(I18n.instance.t('save_json_first'))),
       );
       return;
     }
@@ -413,7 +431,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
   Widget _buildUploadDialog(BuildContext context) {
     return StatefulBuilder(
       builder: (context, setState) => AlertDialog(
-        title: const Text('Upload do BepInEx'),
+        title: Text(I18n.instance.t('upload_to_bepinex')),
         content: SizedBox(
           width: 400,
           child: Column(
@@ -430,37 +448,37 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                   final data = snapshot.data!;
                   final type = data['type'] as String;
 
-                  if (type == 'file_progress') {
-                    final percentage = double.parse(data['percentage'] as String);
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Uploadowanie: ${data['fileName']}'),
-                        SizedBox(height: 8),
-                        LinearProgressIndicator(value: percentage / 100),
-                        SizedBox(height: 8),
-                        Text('${data['percentage']}%'),
-                      ],
-                    );
+                    if (type == 'file_progress') {
+                      final percentage = double.parse(data['percentage'] as String);
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('${I18n.instance.t('uploading')} ${data['fileName']}'),
+                          const SizedBox(height: 8),
+                          LinearProgressIndicator(value: percentage / 100),
+                          const SizedBox(height: 8),
+                          Text('${data['percentage']}%'),
+                        ],
+                      );
                   } else if (type == 'file_completed') {
                     return Text('✓ ${data['fileName']} ukończony (${data['completed']}/${data['total']})');
-                  } else if (type == 'all_completed') {
-                    return Column(
-                      children: [
-                        const Text('✓ Wszystkie pliki przesłane!'),
-                        SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            setState(() => _isUploadingJson = false);
-                          },
-                          child: const Text('Zamknij'),
-                        ),
-                      ],
-                    );
-                  } else if (type == 'error') {
-                    return Text('❌ Błąd: ${data['error']}');
-                  }
+                    } else if (type == 'all_completed') {
+                      return Column(
+                        children: [
+                          Text(I18n.instance.t('all_files_uploaded')),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              setState(() => _isUploadingJson = false);
+                            },
+                            child: Text(I18n.instance.t('close')),
+                          ),
+                        ],
+                      );
+                    } else if (type == 'error') {
+                      return Text('❌ ${I18n.instance.t('error')}: ${data['error']}');
+                    }
 
                   return const SizedBox();
                 },
@@ -478,42 +496,52 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(widget.title),
-            Text(
-              _currentPath,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
-            ),
+            Text('${widget.title} ${I18n.instance.t('app_title')}'),
+            if (_isLoading == false && _errorMessage == null)
+              Text(
+                '${I18n.instance.t('server_info')} ${_ftpService.host}',
+                style: const TextStyle(fontSize: 10, fontFamily: 'Norse', color: Colors.white38),
+              ),
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.language),
+            tooltip: I18n.instance.t('language'),
+            onPressed: () {
+              widget.onLanguageToggle();
+              setState(() {}); // Refresh local UI
+            },
+          ),
           ElevatedButton.icon(
             onPressed: (_isUploadingJson || _isLoadingStats) ? null : _saveJsonCache,
             icon: const Icon(Icons.save),
-            label: const Text('Zapisz JSON'),
+            label: Text(I18n.instance.t('files')),
           ),
-          SizedBox(width: 8),
+          const SizedBox(width: 8),
           ElevatedButton.icon(
             onPressed: _isUploadingJson || _generatedJson == null ? null : _uploadJsonToBepInEx,
             icon: const Icon(Icons.cloud_upload),
-            label: const Text('Upload'),
+            label: Text(I18n.instance.t('update')),
           ),
           SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.settings),
-            tooltip: 'Pool size',
+            tooltip: I18n.instance.t('pool_size'),
             onPressed: () async {
               int newSize = _poolSize;
               await showDialog<void>(
                 context: context,
                 builder: (context) {
                   return AlertDialog(
-                    title: const Text('Rozmiar puli połączeń'),
+                    title: Text(I18n.instance.t('pool_size')),
                     content: StatefulBuilder(builder: (context, setStateDialog) {
                       return Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text('Aktualnie: $newSize'),
+                          Text('${I18n.instance.t('current_value')} $newSize'),
                           Slider(
                             value: newSize.toDouble(),
                             min: 1,
@@ -526,7 +554,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                       );
                     }),
                     actions: [
-                      TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Anuluj')),
+                      TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(I18n.instance.t('cancel'))),
                       ElevatedButton(onPressed: () {
                         // Zastosuj i restartuj indeksowanie
                         setState(() {
@@ -536,7 +564,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                           _startIndexing();
                         });
                         Navigator.of(context).pop();
-                      }, child: const Text('Zastosuj')),
+                      }, child: Text(I18n.instance.t('apply'))),
                     ],
                   );
                 },
@@ -545,7 +573,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
           ),
           IconButton(
             icon: const Icon(Icons.info_outline),
-            tooltip: 'Informacje',
+            tooltip: I18n.instance.t('info'),
             onPressed: () => _showAboutDialog(context),
           ),
         ],
@@ -556,15 +584,15 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
             flex: 1,
             child: Column(
               children: [
-                if (_currentPath != '/')
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: ElevatedButton.icon(
-                      onPressed: _goBack,
-                      icon: const Icon(Icons.arrow_back),
-                      label: const Text('Wróć'),
+                  if (_currentPath != '/')
+                    Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: ElevatedButton.icon(
+                        onPressed: _goBack,
+                        icon: const Icon(Icons.arrow_back),
+                        label: Text(I18n.instance.t('back')),
+                      ),
                     ),
-                  ),
                 Expanded(child: _buildLeftPanel()),
               ],
             ),
@@ -577,7 +605,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _initializeAndLoadFiles,
-        tooltip: 'Odswiez',
+        tooltip: I18n.instance.t('refresh'),
         child: const Icon(Icons.refresh),
       ),
     );
@@ -599,8 +627,8 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
       );
     }
     if (_filesList.isEmpty) {
-      return const Center(
-        child: Text('Brak plikow w tym folderze'),
+      return Center(
+        child: Text(I18n.instance.t('no_files_in_folder')),
       );
     }
 
@@ -666,7 +694,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
             final progress = snapshot.data ?? _lastProgress;
             // jeśli stream zakończony bez danych — wyświetl komunikat
             if (snapshot.connectionState == ConnectionState.waiting && progress == null) {
-              return Center(child: Column(mainAxisSize: MainAxisSize.min, children: const [CircularProgressIndicator(), SizedBox(height: 8), Text('Budowanie cache...')]));
+              return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [const CircularProgressIndicator(), const SizedBox(height: 8), Text(I18n.instance.t('building_cache'))]));
             }
             return _buildScanProgress(progress);
           },
@@ -686,9 +714,9 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Statystyki wszystkich folderow',
-                            style: TextStyle(
+                          Text(
+                            I18n.instance.t('folder_stats'),
+                            style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
                             ),
@@ -705,11 +733,11 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 _buildStatRow(
-                                  'Razem plikow:',
+                                  I18n.instance.t('total_files'),
                                   _statistics!.totalFiles.toString(),
                                 ),
                                 _buildStatRow(
-                                  'Razem rozmiar:',
+                                  I18n.instance.t('total_size'),
                                   _statistics!.totalSizeFormatted,
                                 ),
                               ],
@@ -722,8 +750,8 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                 ),
               ],
             )
-          : const Center(
-              child: Text('Brak danych'),
+          : Center(
+              child: Text(I18n.instance.t('no_data')),
             ),
     );
   }
@@ -742,12 +770,12 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
      }
 
      // Oblicz szybkość (pliki/sekundę)
-     String speed = '0 pł/s';
+     String speed = '0 ${I18n.instance.t('files_per_second')}';
     if (_startTime != null) {
       final elapsed = DateTime.now().difference(_startTime!).inSeconds;
       if (elapsed > 0 && progress != null) {
         final filesPerSecond = progress.totalFiles / elapsed;
-        speed = '${filesPerSecond.toStringAsFixed(1)} pł/s';
+        speed = '${filesPerSecond.toStringAsFixed(1)} ${I18n.instance.t('files_per_second')}';
       }
     }
 
@@ -774,7 +802,7 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isBuildingCache ? 'Budowanie cache struktury...' : 'Skanowanie i liczenie rozmiarów...',
+                  isBuildingCache ? I18n.instance.t('building_cache_structure') : I18n.instance.t('scanning_and_calculating'),
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -791,8 +819,8 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text(
-                                'Pliki:',
+                              Text(
+                                I18n.instance.t('files'),
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w500,
@@ -812,8 +840,8 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text(
-                                'Rozmiar:',
+                              Text(
+                                I18n.instance.t('size'),
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w500,
@@ -833,8 +861,8 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text(
-                                'Czas:',
+                              Text(
+                                I18n.instance.t('time'),
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w500,
@@ -854,8 +882,8 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text(
-                                'Szybkość:',
+                              Text(
+                                I18n.instance.t('speed'),
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w500,
@@ -875,8 +903,8 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text(
-                                'Połączenia FTP:',
+                              Text(
+                                I18n.instance.t('ftp_connections'),
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w500,
@@ -916,8 +944,8 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Ostatnio przetwarzane:',
+                    Text(
+                      I18n.instance.t('last_processed'),
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
@@ -925,11 +953,11 @@ class _FtpFilesPageState extends State<FtpFilesPage> {
                     ),
                     const SizedBox(height: 12),
                     if (scannedItems.isEmpty)
-                      const Align(
+                       Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          'Czekam na dane...',
-                          style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
+                          I18n.instance.t('waiting_for_data'),
+                          style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
                           textAlign: TextAlign.left,
                         ),
                       )

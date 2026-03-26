@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "server_patcher" "\0"
+            VALUE "CompanyName", "Schron Twarda" "\0"
+            VALUE "FileDescription", "Valheim Patcher" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "server_patcher" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "server_patcher.exe" "\0"
-            VALUE "ProductName", "server_patcher" "\0"
+            VALUE "InternalName", "valheim_patcher" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Schron Twarda. All rights reserved." "\0"
+            VALUE "OriginalFilename", "valheim_patcher.exe" "\0"
+            VALUE "ProductName", "Valheim Patcher" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

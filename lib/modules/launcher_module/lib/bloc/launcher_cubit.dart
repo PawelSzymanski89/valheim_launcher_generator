@@ -336,7 +336,7 @@ class LauncherCubit extends Cubit<LauncherState> {
       // 3) Użyj centralnej funkcji porównania z serwisu
       // Oddaj event loop UI przed synchroniczną pętlą 1371 plików
       await Future.delayed(Duration.zero);
-      final comparison = filesService.compareRemoteAndLocal(
+      final comparison = await filesService.compareRemoteAndLocal(
           remoteList, localList, sizeTolerance: 2);
       
 
@@ -352,12 +352,11 @@ class LauncherCubit extends Cubit<LauncherState> {
       // Record sync result: whether there are downloads to perform and timestamp
       _lastSyncHadDownload = toDownload.isNotEmpty;
       _lastSyncCompletedAt = DateTime.now();
-      // Fire-and-forget: append the computed list of files to download into persistent log
-      Future(() async {
-        try {
-          await _appendToDownloadLog(toDownload, remoteManifest, downloadReasons: downloadReasons);
-        } catch (_) {}
-      });
+      // Fire-and-forget: append the computed list of files to download into persistent log (InBackground)
+      compute<_LogDownloadParams, void>(
+        _logDownloadTask,
+        _LogDownloadParams(toDownload, remoteManifest, downloadReasons, state.valheimExePath)
+      ).catchError((_) => null);
 
       if (kDebugMode) {
         debugPrint('[LauncherCubit] toDelete=${toDelete
@@ -410,10 +409,13 @@ class LauncherCubit extends Cubit<LauncherState> {
             _lastProgressValue = progressValue;
             _lastDownloadedBytes = currentDownloadedBytes;
 
-            // Emituj tylko jeśli minęło >120ms od ostatniego emit lub to ostatni plik
+            // Throttle: emituj max raz na 250ms żeby nie blokować renderera wideo.
             final now = DateTime.now();
-            if (now.difference(_lastProgressEmit).inMilliseconds >= 120 || completed == total) {
+            if (now.difference(_lastProgressEmit).inMilliseconds >= 250 || completed == total) {
               _lastProgressEmit = now;
+              if (kDebugMode) {
+                debugPrint('[LauncherCubit] Progress: ${(_lastProgressValue * 100).toStringAsFixed(1)}% - $_lastFileName');
+              }
               _emitStatus('downloading_progress', params: {
                 'current': '$completed',
                 'total': '$total',
@@ -432,7 +434,7 @@ class LauncherCubit extends Cubit<LauncherState> {
       // After downloads: recompute local list and delete/move files absent from remote manifest
       try {
         final refreshedLocal = await filesService.listLocalModFiles(gameRoot);
-        final finalComparison = filesService.compareRemoteAndLocal(
+        final finalComparison = await filesService.compareRemoteAndLocal(
             remoteList, refreshedLocal, sizeTolerance: 2);
         final finalToDelete = List<LocalFileEntry>.from(finalComparison['toDelete'] ?? <LocalFileEntry>[]);
 
@@ -961,4 +963,63 @@ class LauncherCubit extends Cubit<LauncherState> {
       // ignore logging failures
     }
   }
+}
+
+// ─── LOGGING ISOLATE ────────────────────────────────────────────────────────
+
+class _LogDownloadParams {
+  final List<RemoteFileEntry> entries;
+  final String remoteManifest;
+  final Map<String, String>? downloadReasons;
+  final String? valheimExePath;
+  _LogDownloadParams(this.entries, this.remoteManifest, this.downloadReasons, this.valheimExePath);
+}
+
+Future<void> _logDownloadTask(_LogDownloadParams params) async {
+  final entries = params.entries;
+  if (entries.isEmpty) return;
+  
+  try {
+    const filename = 'download_decisions.log';
+    String? writtenPath;
+
+    // 1) Try launcher exe folder
+    try {
+      final exeDir = File(Platform.resolvedExecutable).parent.path;
+      final f = File('$exeDir${Platform.pathSeparator}$filename');
+      await f.parent.create(recursive: true);
+      writtenPath = f.path;
+    } catch (_) {}
+
+    // 2) Try game root
+    if (writtenPath == null && params.valheimExePath != null) {
+      try {
+        final gameDir = File(params.valheimExePath!).parent.path;
+        final f = File('$gameDir${Platform.pathSeparator}$filename');
+        await f.parent.create(recursive: true);
+        writtenPath = f.path;
+      } catch (_) {}
+    }
+
+    // 3) Temp
+    final baseDir = writtenPath == null ? Directory.systemTemp.path : File(writtenPath).parent.path;
+    final f = File('$baseDir${Platform.pathSeparator}$filename');
+
+    final sb = StringBuffer();
+    sb.writeln('===== SESSION ${DateTime.now().toIso8601String()} MANIFEST=${params.remoteManifest} =====');
+    sb.writeln('Total files to download: ${entries.length}');
+    sb.writeln('');
+    
+    for (final e in entries) {
+      final reason = params.downloadReasons?[e.relativePath] ?? 'UNKNOWN';
+      sb.writeln('FILE: ${e.relativePath}');
+      sb.writeln('  REASON: $reason');
+      sb.writeln('  REMOTE: size=${e.size ?? '<unknown>'} modified=${e.modified?.toIso8601String() ?? '<unknown>'}');
+      sb.writeln('');
+    }
+    
+    sb.writeln('===== END SESSION (${entries.length} files) =====\n\n');
+    
+    await f.writeAsString(sb.toString(), mode: FileMode.append, flush: true);
+  } catch (_) {}
 }

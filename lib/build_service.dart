@@ -11,6 +11,7 @@ import 'package:image/image.dart' as img;
 import 'utils/crypto_service.dart';
 import 'utils/shared_salt.dart';
 import 'utils/profile_service.dart';
+import 'package:archive/archive_io.dart';
 
 /// Result of a single module build.
 class ModuleBuildResult {
@@ -35,6 +36,55 @@ class BuildService {
   final GeneratorConfig config;
   final void Function(String message) onLog;
   final void Function(double progress) onProgress;
+
+  void _logOutput(String line) {
+    onLog('  $line');
+  }
+
+  /// Inkrementuje wersję w pubspec.yaml o 0.0.1 oraz numer builda o 1.
+  Future<void> _incrementVersion(String modulePath) async {
+    final pubspecFile = File(p.join(modulePath, 'pubspec.yaml'));
+    if (!await pubspecFile.exists()) return;
+
+    try {
+      final content = await pubspecFile.readAsString();
+      final lines = content.split('\n');
+      final newLines = <String>[];
+      bool updated = false;
+
+      for (var line in lines) {
+        if (line.trim().startsWith('version:') && !updated) {
+          final parts = line.split(':');
+          if (parts.length == 2) {
+            var versionStr = parts[1].trim();
+            // Obsługa formatu X.Y.Z+B
+            final versionParts = versionStr.split('+');
+            var semVer = versionParts[0];
+            var buildNum = versionParts.length > 1 ? int.tryParse(versionParts[1]) ?? 0 : 0;
+
+            final semParts = semVer.split('.');
+            if (semParts.length == 3) {
+              int patch = int.tryParse(semParts[2]) ?? 0;
+              semVer = '${semParts[0]}.${semParts[1]}.${patch + 1}';
+            }
+            
+            final newVersion = '$semVer+${buildNum + 1}';
+            newLines.add('version: $newVersion');
+            onLog('  📈 Podbito wersję w ${p.basename(modulePath)}: $versionStr -> $newVersion');
+            updated = true;
+            continue;
+          }
+        }
+        newLines.add(line);
+      }
+
+      if (updated) {
+        await pubspecFile.writeAsString(newLines.join('\n'));
+      }
+    } catch (e) {
+      onLog('  ⚠️ Błąd podczas inkrementacji wersji w $modulePath: $e');
+    }
+  }
 
   BuildService({
     required this.config,
@@ -225,26 +275,6 @@ class BuildService {
     }
   }
 
-  /// Increments the build number (+N) in the module's pubspec.yaml.
-  /// e.g. version: 1.0.0+5 → 1.0.0+6
-  Future<void> _bumpBuildNumber(String modDir) async {
-    try {
-      final pubspecFile = File(p.join(modDir, 'pubspec.yaml'));
-      if (!await pubspecFile.exists()) return;
-      var content = await pubspecFile.readAsString();
-      final versionRegex = RegExp(r'^(version:\s*\S+?\+)(\d+)', multiLine: true);
-      final match = versionRegex.firstMatch(content);
-      if (match == null) return;
-      final prefix = match.group(1)!;
-      final current = int.parse(match.group(2)!);
-      final next = current + 1;
-      content = content.replaceFirst(versionRegex, '$prefix$next');
-      await pubspecFile.writeAsString(content);
-      onLog('  🔢 Build number: $current → $next');
-    } catch (e) {
-      onLog('  ⚠️ Nie udało się podbić build number: $e');
-    }
-  }
 
   Future<ModuleBuildResult> _buildModule(
       _ModuleSpec mod, String encryptedPayload) async {
@@ -274,10 +304,8 @@ class BuildService {
           .writeAsString(encryptedSalt);
       onLog('  🔐 manifest.sig wstrzyknięty do ${mod.name}/assets/');
 
-      // 2. Write ftp.json (plaintext — used by ftp_downloader for FTP operations)
-      await File(p.join(assetsDir.path, 'ftp.json'))
-          .writeAsString(const JsonEncoder.withIndent('  ')
-              .convert(config.toFtpJson()));
+      // 2c. Dynamically replace buildServerName in module's main.dart
+      await _injectServerName(mod.dir);
 
       // 2b. Inject background video/image — launcher module only.
       //     Copies user-selected backgroundPath → assets/video/background.mp4
@@ -311,8 +339,8 @@ class BuildService {
         onLog('  ⚠️ Ostrzeżenie (ikony): ${iconResult.stderr}'.trim());
       }
 
-      // 4. Bump build number in pubspec.yaml (+N → +N+1)
-      await _bumpBuildNumber(mod.dir);
+      // 4. Increment version (patch 0.0.1 and build number +1)
+      await _incrementVersion(mod.dir);
       onLog('  📦 flutter pub get...');
       final pubResult = await Process.run(
         'flutter', ['pub', 'get'],
@@ -381,7 +409,11 @@ class BuildService {
         t.startsWith('  Assuming') ||
         t.startsWith('  POST_BUILD') ||
         t.startsWith('  PRE_') ||
-        t.startsWith('Use -Wno-dev');
+        t.startsWith('Use -Wno-dev') ||
+        t.startsWith('Exactly one of') ||
+        t.contains('backward compatibility') ||
+        t.contains('suppress this warning') ||
+        t.startsWith('command to set');
 
     try {
       final process = await Process.start(
@@ -499,47 +531,66 @@ class BuildService {
     const remoteDir = 'launcher_files';
     final isSftp = config.ftpPort == 22 || config.ftpPort == 2022;
 
-    // Discover files to upload
-    final List<({File file, String remoteName})> uploads = [];
+    // All modules are placed in a folder named after the launcher version:
+    // output/{serverName}/v{launcherVersion}/{modLabel}/
+    final launcherVersion = _readVersion(p.join(_modulesRoot, 'launcher_module'));
 
-    for (final alias in [
-      (label: '${config.serverName} Launcher', isLauncher: true),
-      (label: '${config.serverName} Updater',  isLauncher: false),
-    ]) {
-      final exeFile = File(p.join(_outputRoot, config.serverName, alias.label, '${alias.label}.exe'));
-      if (!await exeFile.exists()) {
-        onLog('⚠️  Pominięto (brak pliku): ${exeFile.path}');
-        continue;
-      }
-      uploads.add((file: exeFile, remoteName: '${alias.label}.exe'));
-
-      // Version manifest
-      final modDir = alias.isLauncher
-          ? p.join(_modulesRoot, 'launcher_module')
-          : p.join(_modulesRoot, 'updater_module');
-      final version = _readVersion(modDir);
-      final vName = alias.isLauncher ? 'launcher_version.txt' : 'updater_version.txt';
-      final tmpFile = File(p.join(Directory.systemTemp.path, vName));
-      await tmpFile.writeAsString(version, flush: true);
-      uploads.add((file: tmpFile, remoteName: vName));
-      onLog('  📄 $vName → $version');
-    }
-
-    if (uploads.isEmpty) {
-      return (success: false, error: 'Brak plików do wysłania. Czy build zakończył się sukcesem?');
-    }
-
-    onLog('');
-    onLog('🚀 Łączę z ${config.ftpHost}:${config.ftpPort} (${isSftp ? "SFTP" : "FTP"})...');
-
+    // Build ZIP files from output folders
+    final tmpDir = Directory.systemTemp.createTempSync('vlg_upload_');
+    final uploads = <({File file, String remoteName})>[];
     try {
-      if (isSftp) {
-        return await _uploadSftp(remoteDir, uploads);
-      } else {
-        return await _uploadFtp(remoteDir, uploads);
+      for (final modAlias in [
+        (name: 'launcher', label: 'launcher'),
+        (name: 'updater',  label: 'updater'),
+      ]) {
+        final modLabel = '${config.serverName} ${modAlias.name[0].toUpperCase()}${modAlias.name.substring(1)}';
+        final modVersion = _readVersion(p.join(_modulesRoot, '${modAlias.name}_module'));
+        
+        // Use launcherVersion for the version-folder name (consistent with _copyOutput)
+        final sourceDir = Directory(p.join(_outputRoot, config.serverName, 'v$launcherVersion', modLabel));
+        if (!sourceDir.existsSync()) {
+          onLog('  ⚠️ Pominięto ${modAlias.label} (folder nie istnieje: ${sourceDir.path})');
+          continue;
+        }
+
+        // 1. Create .zip (contents of sourceDir in root of zip)
+        onLog('  📦 Pakowanie ${modAlias.label}.zip...');
+        final zipPath = p.join(tmpDir.path, '${modAlias.label}.zip');
+        final encoder = ZipFileEncoder();
+        encoder.create(zipPath);
+        // Add contents of the directory without a prefix folder
+        await for (final file in sourceDir.list(recursive: true)) {
+           if (file is File) {
+             final relative = p.relative(file.path, from: sourceDir.path);
+             encoder.addFile(file, relative);
+           }
+        }
+        encoder.close();
+        uploads.add((file: File(zipPath), remoteName: '${modAlias.label}.zip'));
+
+        // 2. Create .txt version manifest
+        final vFile = File(p.join(tmpDir.path, '${modAlias.label}.txt'));
+        await vFile.writeAsString(modVersion, flush: true);
+        uploads.add((file: vFile, remoteName: '${modAlias.label}.txt'));
+        onLog('  📄 ${modAlias.label}.txt → $modVersion');
       }
-    } catch (e) {
-      return (success: false, error: '$e');
+
+      if (uploads.isEmpty) {
+        return (success: false, error: 'Brak plików do wysłania. Czy build zakończył się sukcesem?');
+      }
+
+      onLog('');
+      onLog('🚀 Łączę z ${config.ftpHost}:${config.ftpPort} (${isSftp ? "SFTP" : "FTP"})...');
+
+      ({bool success, String? error}) result;
+      if (isSftp) {
+        result = await _uploadSftp(remoteDir, uploads);
+      } else {
+        result = await _uploadFtp(remoteDir, uploads);
+      }
+      return result;
+    } finally {
+      tmpDir.deleteSync(recursive: true); // Clean up
     }
   }
 
@@ -607,6 +658,28 @@ class BuildService {
       await ftp.disconnect();
     }
     return (success: true, error: null);
+  }
+
+  /// Replaces the hardcoded buildServerName constant in the module's main.dart
+  /// with the actual server name configured by the user in the wizard.
+  Future<void> _injectServerName(String modDir) async {
+    try {
+      final mainDart = File(p.join(modDir, 'lib', 'main.dart'));
+      if (!await mainDart.exists()) return;
+      var content = await mainDart.readAsString();
+      // Replace the buildServerName constant value
+      final pattern = RegExp(r"static const String buildServerName = '.*?';");
+      if (pattern.hasMatch(content)) {
+        content = content.replaceFirst(
+          pattern,
+          "static const String buildServerName = '${config.serverName}';",
+        );
+        await mainDart.writeAsString(content);
+        onLog('  📛 Nazwa serwera wstrzyknięta: ${config.serverName}');
+      }
+    } catch (e) {
+      onLog('  ⚠️ Nie udało się wstrzyknąć nazwy serwera: $e');
+    }
   }
 
   /// Generuje dynamiczny obrazek logo (256x256) z akronimem nazwy przy użyciu

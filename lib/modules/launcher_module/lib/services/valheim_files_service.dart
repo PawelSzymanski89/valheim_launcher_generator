@@ -7,6 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:archive/archive_io.dart';
 import 'package:server_launcher/services/i18n_service.dart';
 import 'package:server_launcher/services/ftp_downloader.dart';
+import 'package:server_launcher/services/crypto_config.dart';
+import 'package:server_launcher/services/valheim_server_service.dart';
+import 'package:path/path.dart' as p;
 
 /// Represents a file entry described by the remote JSON manifest.
 class RemoteFileEntry {
@@ -322,12 +325,9 @@ class ValheimFilesService {
       }
     }
 
-    // Wczytaj konfigurację FTP z assetów
-    late final Map<String, dynamic> cfg;
-    try {
-      final content = await rootBundle.loadString('assets/ftp.json');
-      cfg = json.decode(content) as Map<String, dynamic>;
-    } catch (e) {
+    // Wczytaj konfigurację FTP z zaszyfrowanego pliku
+    final decrypted = await loadDecryptedConfig();
+    if (decrypted == null) {
       // Przywróć backup jeśli utworzono i download się nie wykona
       try {
         if (await backupFile.exists()) {
@@ -337,14 +337,10 @@ class ValheimFilesService {
           await backupFile.rename(targetFile.path);
         }
       } catch (_) {}
-      throw Exception('Nie można wczytać konfiguracji FTP: $e');
+      throw Exception('Nie można wczytać zaszyfrowanej konfiguracji FTP.');
     }
 
-    if (cfg['host'] == null || (cfg['host'] as String).isEmpty) {
-      throw Exception('Nieprawidłowa konfiguracja FTP: brak hosta');
-    }
-
-    final downloader = FtpDownloader(FtpConfig.fromJson(cfg));
+    final downloader = FtpDownloader(decrypted.toFtpConfig());
 
     try {
       await downloader.connect();
@@ -372,160 +368,22 @@ class ValheimFilesService {
 
   /// Porównuje zdalną i lokalną listę plików i zwraca mapę z listami do pobrania i do usunięcia.
   /// Zgodna sygnatura z wcześniejszym API (używana przez LauncherCubit).
-  Map<String, dynamic> compareRemoteAndLocal(List<RemoteFileEntry> remoteList, List<LocalFileEntry> localList, {int sizeTolerance = 0}) {
-    // Blacklist: paths/patterns that should be ignored (cache/logs/manifest)
-    final blacklistPatterns = <String>[
-      'config/wackysdatabase/cache/',
-      'logoutput.log',
-      'mods_list.json',
-    ];
-
-    bool isBlacklisted(String path) {
-      final s = path.toLowerCase().replaceAll('\\', '/');
-      final black = [
-        'config/wackysdatabase/cache/',
-        'logoutput.log',
-        'mods_list.json',
-        'bepinex/cache/',
-        'bepinex/dumpedassemblies/',
-        '.doorstop_version',
-        'doorstop_config.ini.bak',
-      ];
-      for (final pat in black) {
-        final normPat = pat.toLowerCase();
-        if (s.contains(normPat)) return true;
-      }
-      return false;
-    }
-
-    String normalize(String p) {
-      if (p.isEmpty) return '';
-      // Zamień wszystkie ukośniki na / i usuń białe znaki
-      var s = p.replaceAll('\\', '/').trim();
-      // Usuń wielokrotne ukośniki (np. // na /)
-      s = s.replaceAll(RegExp(r'/+'), '/');
-      // Usuń prowadzące ukośniki i kropki
-      s = s.replaceFirst(RegExp(r'^[./\\]+'), '');
-      s = s.toLowerCase();
-      
-      // Ponownie wyczyść ukośniki na końcu
-      if (s.endsWith('/')) s = s.substring(0, s.length - 1);
-      return s;
-    }
-
-    // Filter lists using blacklist before building maps
-    final filteredRemote = remoteList.where((r) {
-      if (isBlacklisted(r.relativePath)) return false;
-      
-      // Ignoruj foldery (size jest null lub 0 I ścieżka kończy się ukośnikiem)
-      // W pakietach modów pliki o rozmiarze 0 to zazwyczaj śmieci lub foldery.
-      if (r.size == 0 || r.size == null) {
-        if (r.relativePath.endsWith('/') || r.relativePath.endsWith('\\')) return false;
-        // Jeśli rozmiar jest 0 i nie wiemy czy to plik (brak daty), to bezpieczniej zignorować
-        if (r.modified == null) return false;
-      }
-      
-      return true;
-    }).toList();
-    
-    final filteredLocal = localList.where((l) => !isBlacklisted(l.relativePath)).toList();
-
-    if (kDebugMode) {
-      final excludedRemote = remoteList.length - filteredRemote.length;
-      final excludedLocal = localList.length - filteredLocal.length;
-      if (excludedRemote > 0) debugPrint('[ValheimFilesService] Excluded $excludedRemote remote entries (blacklist/folders)');
-      if (excludedLocal > 0) debugPrint('[ValheimFilesService] Excluded $excludedLocal local entries (blacklist)');
-    }
-
-    // Build maps
-    final remoteMap = <String, RemoteFileEntry>{};
-    for (final r in filteredRemote) remoteMap[normalize(r.relativePath)] = r;
-    final localMap = <String, LocalFileEntry>{};
-    for (final l in filteredLocal) localMap[normalize(l.relativePath)] = l;
-
-    // toDelete: local files not present in remote
-    final toDelete = <LocalFileEntry>[];
-    for (final l in filteredLocal) {
-      final key = normalize(l.relativePath);
-      if (!remoteMap.containsKey(key)) toDelete.add(l);
-    }
-
-    // toDownload: logic from earlier
-    final toDownload = <RemoteFileEntry>[];
-    final downloadReasons = <String, String>{}; // path -> reason
-    
-    for (final r in filteredRemote) {
-      final key = normalize(r.relativePath);
-      final local = localMap[key];
-
-      if (local == null) {
-        toDownload.add(r);
-        downloadReasons[r.relativePath] = 'MISSING: file does not exist locally (key=$key)';
-        continue;
-      }
-
-      var needsDownload = false;
-      String reason = '';
-
-      // Priorytet 1: Jeśli znamy rozmiar zdalny, porównuj po rozmiarze
-      if (r.size != null) {
-        if (!_sizeMatchesInternal(r.size, local.size, sizeTolerance)) {
-          needsDownload = true;
-          reason = 'SIZE_MISMATCH: remote=${r.size} bytes, local=${local.size} bytes, diff=${(r.size! - local.size).abs()} bytes';
-        }
-        // Jeśli rozmiary się zgadzają, sprawdzamy datę, ale z BARDZO dużą tolerancją (np. 10 minut)
-        // bo Windows potrafi zaokrąglać daty lub mieć problemy z Timezone po zapisaniu pliku.
-        else if (r.modified != null) {
-          final remoteSeconds = r.modified!.millisecondsSinceEpoch ~/ 1000;
-          final localSeconds = local.modified.millisecondsSinceEpoch ~/ 1000;
-          final secondsDiff = (remoteSeconds - localSeconds).abs();
-          
-          // Jeśli rozmiar jest ten sam, pozwalamy na 10 minut różnicy
-          const int driftTolerance = 600; // 10 minutes
-          if (secondsDiff > driftTolerance) {
-            needsDownload = true;
-            reason = 'DATE_MISMATCH_LARGE: sizes match, but dates differ by ${secondsDiff}s (remote=${r.modified?.toIso8601String()}, local=${local.modified.toIso8601String()})';
-          }
-        }
-      } 
-      // Priorytet 2: Jeśli nie ma rozmiaru, ale jest data - porównaj datę z tolerancją 5 minut
-      else if (r.modified != null) {
-        final remoteSeconds = r.modified!.millisecondsSinceEpoch ~/ 1000;
-        final localSeconds = local.modified.millisecondsSinceEpoch ~/ 1000;
-        final secondsDiff = (remoteSeconds - localSeconds).abs();
-        
-        const int secondsTolerance = 300; // 5 minutes
-        
-        if (secondsDiff > secondsTolerance) {
-          needsDownload = true;
-          reason = 'DATE_ONLY_MISMATCH: remote=${r.modified?.toIso8601String()}, local=${local.modified.toIso8601String()}, diff=${secondsDiff}s';
-        }
-      }
-      // Priorytet 3: Brak danych o rozmiarze i dacie - zakładamy że plik jest OK
-      else {
-        if (kDebugMode) debugPrint('[ValheimFilesService] NOTICE: no size/date info for $key - assuming match');
-      }
-
-      if (needsDownload) {
-        toDownload.add(r);
-        downloadReasons[r.relativePath] = reason;
-        // Loguj tylko pierwsze 20 plików do pobrania żeby nie zalewać konsoli
-        if (kDebugMode && toDownload.length <= 20) debugPrint('[ValheimFilesService] Will DOWNLOAD ($reason): $key');
-      }
-      // Nie loguj OK match per-plik — 1371 wywołań = stutter UI
-    }
-
-    return {'toDownload': toDownload, 'toDelete': toDelete, 'downloadReasons': downloadReasons};
+  /// Porównuje zdalną i lokalną listę plików i zwraca mapę z listami do pobrania i do usunięcia.
+  /// Używa `compute` do wykonania operacji w osobnym izolacie, aby nie blokować UI (wideo).
+  Future<Map<String, dynamic>> compareRemoteAndLocal(List<RemoteFileEntry> remoteList, List<LocalFileEntry> localList, {int sizeTolerance = 0}) async {
+    return await compute<_CompareTaskParams, Map<String, dynamic>>(
+      _compareRemoteAndLocalTask,
+      _CompareTaskParams(remoteList, localList, sizeTolerance),
+    );
   }
 
   /// Pobiera i parsuje zdalny manifest JSON z FTP (np. '/BepInEx/mods_list.json').
   /// Zwraca obiekt `RemoteManifest`.
   Future<RemoteManifest> loadRemoteManifestFromFtp(String remoteJsonPath) async {
-    final cfgText = await rootBundle.loadString('assets/ftp.json');
-    final cfg = json.decode(cfgText) as Map<String, dynamic>;
-    if (cfg['host'] == null || (cfg['host'] as String).isEmpty) throw Exception('Nieprawidłowa konfiguracja FTP');
+    final decrypted = await loadDecryptedConfig();
+    if (decrypted == null) throw Exception('Nie można wczytać zaszyfrowanej konfiguracji FTP.');
 
-    final downloader = FtpDownloader(FtpConfig.fromJson(cfg));
+    final downloader = FtpDownloader(decrypted.toFtpConfig());
 
     final tmp = Directory.systemTemp.createTempSync('mods_manifest_');
     final tmpFile = File('${tmp.path}${Platform.pathSeparator}mods_list.json');
@@ -561,67 +419,13 @@ class ValheimFilesService {
   /// Sprawdza które pliki z manifestu istnieją lokalnie i zwraca ich metadane.
   /// [gameRoot] - katalog główny gry (gdzie jest valheim.exe)
   /// [manifestPaths] - lista ścieżek względnych z manifestu (opcjonalna - jeśli pusta, skanuje BepInEx)
+  /// Listuje lokalne pliki modów na podstawie ścieżek z manifestu.
+  /// Używa `compute` do skanowania dysku w osobnym izolacie, aby nie blokować UI.
   Future<List<LocalFileEntry>> listLocalModFiles(String gameRoot, {List<String>? manifestPaths}) async {
-    final List<LocalFileEntry> res = [];
-
-    // Jeśli mamy ścieżki z manifestu, sprawdzamy tylko te konkretne pliki
-    if (manifestPaths != null && manifestPaths.isNotEmpty) {
-      for (final relPath in manifestPaths) {
-        try {
-          final fullPath = '$gameRoot${Platform.pathSeparator}$relPath';
-          final file = File(fullPath);
-          if (await file.exists()) {
-            final stat = await file.stat();
-            res.add(LocalFileEntry(relativePath: relPath, size: stat.size, modified: stat.modified));
-          }
-        } catch (_) {}
-      }
-      return res;
-    }
-
-    // Fallback: skanuj folder BepInEx i wybrane pliki w roocie
-    try {
-      final List<String> managedRootFiles = ['doorstop_config.ini', 'winhttp.dll'];
-      for (final rootFile in managedRootFiles) {
-        final f = File('$gameRoot${Platform.pathSeparator}$rootFile');
-        if (await f.exists()) {
-          final stat = await f.stat();
-          res.add(LocalFileEntry(relativePath: rootFile, size: stat.size, modified: stat.modified));
-        }
-      }
-
-      var bep = Directory('$gameRoot${Platform.pathSeparator}BepInEx');
-      var exists = await bep.exists();
-      if (!exists) {
-        // search subfolders for BepInEx
-        try {
-          final entities = await Directory(gameRoot).list(recursive: false).toList();
-          for (final entity in entities) {
-            if (entity is Directory) {
-              final name = entity.path.split(Platform.pathSeparator).last;
-              if (name.toLowerCase() == 'bepinex') {
-                bep = entity;
-                exists = true;
-                break;
-              }
-            }
-          }
-        } catch (_) {}
-      }
-
-      if (exists) {
-        await for (final entity in bep.list(recursive: true, followLinks: false)) {
-          if (entity is File) {
-            try {
-              final rel = entity.path.substring(gameRoot.length + 1).replaceAll('\\', '/');
-              final stat = await entity.stat();
-              res.add(LocalFileEntry(relativePath: rel, size: stat.size, modified: stat.modified));
-            } catch (_) {}
-          }
-        }
-      }
-    } catch (_) {}
-    return res;
+    return await compute<_ScanTaskParams, List<LocalFileEntry>>(
+        _listLocalFilesTask,
+        _ScanTaskParams(gameRoot, manifestPaths)
+    );
   }
 
   /// Stara funkcja dla kompatybilności - przekierowuje do listLocalModFiles
@@ -643,9 +447,9 @@ class ValheimFilesService {
     void Function(int active, int allowed)? onPoolInfo,
   }) async {
     if (entries.isEmpty) return;
-    final cfgText = await rootBundle.loadString('assets/ftp.json');
-    final cfg = json.decode(cfgText) as Map<String, dynamic>;
-    if (cfg['host'] == null || (cfg['host'] as String).isEmpty) throw Exception('Nieprawidłowa konfiguracja FTP');
+    final decrypted = await loadDecryptedConfig();
+    if (decrypted == null) throw Exception('Nie można wczytać zaszyfrowanej konfiguracji FTP.');
+    final ftpCfg = decrypted.toFtpConfig();
 
     // Stała pula połączeń - zawsze maksimum dla szybkości pobierania
     const int maxPool = 8; // Zwiększona pula dla lepszej wydajności
@@ -683,6 +487,7 @@ class ValheimFilesService {
     const int maxRetries = 3;
     int completedFiles = 0;
     int currentIndex = 0;
+    DateTime lastProgressEmit = DateTime.fromMillisecondsSinceEpoch(0);
 
     RemoteFileEntry? nextItem() {
       if (currentIndex >= entries.length) return null;
@@ -693,7 +498,7 @@ class ValheimFilesService {
 
     // Worker: osobne połączenie FTP/SFTP, pobiera pliki z kolejki dopóki są.
     Future<void> worker(int workerId) async {
-      final downloader = FtpDownloader(FtpConfig.fromJson(cfg));
+      final downloader = FtpDownloader(ftpCfg);
 
       try {
         await downloader.connect();
@@ -740,15 +545,20 @@ class ValheimFilesService {
 
           if (ok) {
             completedFiles++;
-            onProgress(completedFiles, entries.length, remotePath, true, item);
+            // Throttle progress updates to avoid UI stutter if many small files are processed
+            final now = DateTime.now();
+            if (completedFiles == total || (now.difference(lastProgressEmit).inMilliseconds > 120)) {
+               lastProgressEmit = now;
+               onProgress(completedFiles, entries.length, remotePath, true, item);
+            }
           } else {
             onProgress(completedFiles, entries.length, remotePath, false, item);
             final localFile = File(localPath);
             try { if (await localFile.exists()) await localFile.delete(); } catch (_) {}
             if (kDebugMode) debugPrint('[ValheimFilesService][W$workerId] Failed $remotePath after $maxRetries attempts');
           }
-          // Oddaj kontrolę event loop po każdym pliku — daje czas rendererowi wideo.
-          await Future.delayed(Duration.zero);
+          // Yield control to event loop for the video renderer
+          await Future.delayed(const Duration(milliseconds: 1));
         }
       } finally {
         if (activeWorkers > 0) { activeWorkers--; notifyPool(); }
@@ -824,15 +634,16 @@ class ValheimFilesService {
     try {
       onProgress(0.0, I18n.instance.t('checking_updates'));
 
-      final cfgText = await rootBundle.loadString('assets/ftp.json');
-      final cfg = json.decode(cfgText) as Map<String, dynamic>;
-      if (kDebugMode) debugPrint('[Updater] Wczytano assets/ftp.json: $cfg');
-      if (cfg['host'] == null || (cfg['host'] as String).isEmpty) throw Exception(I18n.instance.t('ftp_invalid_config'));
+      final decrypted = await loadDecryptedConfig();
+      if (decrypted == null) throw Exception(I18n.instance.t('ftp_invalid_config'));
+      final ftpCfg = decrypted.toFtpConfig();
+
+      if (kDebugMode) debugPrint('[Updater] Wczytano zaszyfrowany config: ${ftpCfg.host}');
 
       final tmp = Directory.systemTemp.createTempSync('updater_check_');
       final tmpTxt = File('${tmp.path}${Platform.pathSeparator}updater.txt');
 
-      final downloader = FtpDownloader(FtpConfig.fromJson(cfg));
+      final downloader = FtpDownloader(ftpCfg);
 
       try {
         await downloader.connect();
@@ -924,7 +735,7 @@ class ValheimFilesService {
       onProgress(0.05, I18n.instance.t('downloading_updater'));
       final tmpZip = File('${tmp.path}${Platform.pathSeparator}updater.zip');
       try {
-        final downloader2 = FtpDownloader(FtpConfig.fromJson(cfg));
+        final downloader2 = FtpDownloader(ftpCfg);
         await downloader2.connect();
         final remoteZipPath = '/launcher_files/updater.zip';
         if (kDebugMode) debugPrint('[Updater] Pobieram remoteZip: $remoteZipPath -> ${tmpZip.path}');
@@ -1015,19 +826,18 @@ class ValheimFilesService {
     try {
       onProgress(0.0, I18n.instance.t('checking_updates'));
 
-      final cfgText = await rootBundle.loadString('assets/ftp.json');
-      final cfg = json.decode(cfgText) as Map<String, dynamic>;
-      if (kDebugMode) debugPrint('[LauncherUpdate] Wczytano assets/ftp.json');
-      if (cfg['host'] == null || (cfg['host'] as String).isEmpty) throw Exception(I18n.instance.t('ftp_invalid_config'));
+      final decrypted = await loadDecryptedConfig();
+      if (decrypted == null) throw Exception(I18n.instance.t('ftp_invalid_config'));
+      final ftpCfg = decrypted.toFtpConfig();
 
-
+      if (kDebugMode) debugPrint('[LauncherUpdate] Wczytano zaszyfrowany config: ${ftpCfg.host}');
 
       // Pobierz launcher.txt do tymczasowego pliku
       final tmp = Directory.systemTemp.createTempSync('launcher_version_check_');
       final tmpTxt = File('${tmp.path}${Platform.pathSeparator}launcher.txt');
 
       try {
-        final downloaderLauncher = FtpDownloader(FtpConfig.fromJson(cfg));
+        final downloaderLauncher = FtpDownloader(ftpCfg);
         await downloaderLauncher.connect();
         final remoteTxtPath = '/launcher_files/launcher.txt';
         if (kDebugMode) debugPrint('[LauncherUpdate] Pobieram: $remoteTxtPath');
@@ -1052,13 +862,32 @@ class ValheimFilesService {
         return false;
       }
 
-      // Porównaj wersje
-      if (remoteVersion == currentVersion) {
-        if (kDebugMode) debugPrint('[LauncherUpdate] Wersja aktualna - brak aktualizacji');
+      // Porównaj wersje (Robust compare)
+      final normRemote = remoteVersion.trim();
+      final normCurrent = currentVersion.trim();
+
+      if (kDebugMode) {
+        debugPrint('[LauncherUpdate] Rozpoczynam porównanie:');
+        debugPrint('   - Serwer (manifest): "$normRemote" (len=${normRemote.length}, codeUnits=${normRemote.codeUnits})');
+        debugPrint('   - Lokalny (PackageInfo): "$normCurrent" (len=${normCurrent.length}, codeUnits=${normCurrent.codeUnits})');
+        debugPrint('   - Identyczne? ${normRemote == normCurrent}');
+      }
+
+      if (normRemote == normCurrent) {
+        if (kDebugMode) debugPrint('[LauncherUpdate] Wersje SĄ IDENTYCZNE - brak aktualizacji');
         try { if (await tmp.exists()) tmp.delete(recursive: true); } catch (_) {}
         onProgress(1.0, I18n.instance.t('launcher_up_to_date'));
         return false;
       }
+
+      // If versions are different, check if they are valid before proceeding
+      if (normRemote.isEmpty) {
+        if (kDebugMode) debugPrint('[LauncherUpdate] BŁĄD: Zdalna wersja jest pusta!');
+        try { if (await tmp.exists()) tmp.delete(recursive: true); } catch (_) {}
+        return false;
+      }
+
+      if (kDebugMode) debugPrint('[LauncherUpdate] WYKRYTO RÓŻNICĘ WERSJI - inicjuję aktualizację...');
 
       if (kDebugMode) debugPrint('[LauncherUpdate] Wykryto nową wersję! Uruchamiam updater...');
       onProgress(0.5, I18n.instance.t('new_launcher_version'));
@@ -1075,12 +904,43 @@ class ValheimFilesService {
         if (kDebugMode) debugPrint('[LauncherUpdate] Fallback appRoot = $appRoot');
       }
 
-      final updaterExe = File('$appRoot${Platform.pathSeparator}updater${Platform.pathSeparator}server_updater.exe');
-      if (kDebugMode) debugPrint('[LauncherUpdate] Ścieżka updatera: ${updaterExe.path}');
+      // Szukamy updatera - dowolny .exe w folderze updater (przeszukiwanie rekurencyjne)
+      final updaterDir = Directory('$appRoot${Platform.pathSeparator}updater');
+      File? updaterExe;
 
-      // Sprawdź czy updater istnieje
-      if (!await updaterExe.exists()) {
-        if (kDebugMode) debugPrint('[LauncherUpdate] BŁĄD: Updater nie istnieje: ${updaterExe.path}');
+      if (await updaterDir.exists()) {
+        if (kDebugMode) debugPrint('[LauncherUpdate] Przeszukuję folder updatera (rekurencyjnie): ${updaterDir.path}');
+        try {
+          final entries = updaterDir.listSync(recursive: true);
+          for (final e in entries) {
+            if (e is File && e.path.toLowerCase().endsWith('.exe')) {
+              // Pomijamy pliki pomocnicze jeśli by jakieś były, szukamy głównego exe
+              final name = p.basename(e.path).toLowerCase();
+              if (name.contains('update') || name.contains('patcher') || entries.length == 1) {
+                updaterExe = e;
+                if (kDebugMode) debugPrint('[LauncherUpdate] Znaleziono updater exe: ${e.path}');
+                break;
+              }
+            }
+          }
+          // Jeśli nie znaleźliśmy po słowie kluczowym, bierzemy pierwszy lepszy .exe
+          if (updaterExe == null) {
+             for (final e in entries) {
+               if (e is File && e.path.toLowerCase().endsWith('.exe')) {
+                 updaterExe = e;
+                 break;
+               }
+             }
+          }
+        } catch (e) {
+          if (kDebugMode) debugPrint('[LauncherUpdate] Błąd skanowania folderu updatera: $e');
+        }
+      } else {
+        if (kDebugMode) debugPrint('[LauncherUpdate] Folder updatera NIE istnieje: ${updaterDir.path}');
+      }
+
+      if (updaterExe == null) {
+        if (kDebugMode) debugPrint('[LauncherUpdate] BŁĄD: Nie znaleziono żadnego .exe w ${updaterDir.path}');
         onProgress(0.0, I18n.instance.t('updater_missing'));
         try { if (await tmp.exists()) tmp.delete(recursive: true); } catch (_) {}
         return false;
@@ -1088,12 +948,16 @@ class ValheimFilesService {
 
       // Uruchom updater
       try {
-        if (kDebugMode) debugPrint('[LauncherUpdate] Uruchamiam updater: ${updaterExe.path}');
+        // Ustal ścieżkę i dodaj cudzysłów dla ścieżek ze spacjami na Windows
+        final String exePath = updaterExe.path;
+        final String quotedExePath = Platform.isWindows ? '"$exePath"' : exePath;
+        
+        if (kDebugMode) debugPrint('[LauncherUpdate] Uruchamiam updater (detached): $quotedExePath');
         onProgress(0.8, I18n.instance.t('launching_updater'));
 
         // Uruchom w trybie detached (updater będzie działał niezależnie)
         await Process.start(
-          updaterExe.path,
+          quotedExePath,
           [],
           workingDirectory: updaterExe.parent.path,
           mode: ProcessStartMode.detached,
@@ -1119,6 +983,174 @@ class ValheimFilesService {
       return false;
     }
   }
+}
+
+// ─── ISOLATE TASKS ──────────────────────────────────────────────────────────
+
+class _CompareTaskParams {
+  final List<RemoteFileEntry> remoteList;
+  final List<LocalFileEntry> localList;
+  final int sizeTolerance;
+  _CompareTaskParams(this.remoteList, this.localList, this.sizeTolerance);
+}
+
+Map<String, dynamic> _compareRemoteAndLocalTask(_CompareTaskParams params) {
+  final remoteList = params.remoteList;
+  final localList = params.localList;
+  final sizeTolerance = params.sizeTolerance;
+
+  bool isBlacklisted(String path) {
+    final s = path.toLowerCase().replaceAll('\\', '/');
+    final black = [
+      'config/wackysdatabase/cache/',
+      'logoutput.log',
+      'mods_list.json',
+      'bepinex/cache/',
+      'bepinex/dumpedassemblies/',
+      '.doorstop_version',
+      'doorstop_config.ini.bak',
+    ];
+    for (final pat in black) {
+      if (s.contains(pat.toLowerCase())) return true;
+    }
+    return false;
+  }
+
+  String normalize(String p) {
+    if (p.isEmpty) return '';
+    var s = p.replaceAll('\\', '/').trim();
+    s = s.replaceAll(RegExp(r'/+'), '/');
+    s = s.replaceFirst(RegExp(r'^[./\\]+'), '');
+    s = s.toLowerCase();
+    if (s.endsWith('/')) s = s.substring(0, s.length - 1);
+    return s;
+  }
+
+  bool sizeMatches(int? remoteSize, int localSize, int tolerance) {
+    if (remoteSize == null) return true;
+    final diff = (remoteSize - localSize).abs();
+    final relTolerance = (remoteSize * 0.005).ceil();
+    final effective = tolerance > relTolerance ? tolerance : relTolerance;
+    const minAbs = 2;
+    final finalTolerance = effective > minAbs ? effective : minAbs;
+    return diff <= finalTolerance;
+  }
+
+  final filteredRemote = remoteList.where((r) {
+    if (isBlacklisted(r.relativePath)) return false;
+    if (r.size == 0 || r.size == null) {
+      if (r.relativePath.endsWith('/') || r.relativePath.endsWith('\\')) return false;
+      if (r.modified == null) return false;
+    }
+    return true;
+  }).toList();
+  
+  final filteredLocal = localList.where((l) => !isBlacklisted(l.relativePath)).toList();
+
+  final remoteMap = <String, RemoteFileEntry>{};
+  for (final r in filteredRemote) remoteMap[normalize(r.relativePath)] = r;
+  
+  final localMap = <String, LocalFileEntry>{};
+  for (final l in filteredLocal) localMap[normalize(l.relativePath)] = l;
+
+  final toDelete = <LocalFileEntry>[];
+  for (final l in filteredLocal) {
+    if (!remoteMap.containsKey(normalize(l.relativePath))) toDelete.add(l);
+  }
+
+  final toDownload = <RemoteFileEntry>[];
+  final downloadReasons = <String, String>{};
+  
+  for (final r in filteredRemote) {
+    final key = normalize(r.relativePath);
+    final local = localMap[key];
+
+    if (local == null) {
+      toDownload.add(r);
+      downloadReasons[r.relativePath] = 'MISSING: locally absent (key=$key)';
+      continue;
+    }
+
+    var needsDownload = false;
+    String reason = '';
+
+    if (r.size != null) {
+      if (!sizeMatches(r.size, local.size, sizeTolerance)) {
+        needsDownload = true;
+        reason = 'SIZE_MISMATCH: remote=${r.size}, local=${local.size}';
+      } else if (r.modified != null) {
+        final diff = (r.modified!.millisecondsSinceEpoch ~/ 1000 - local.modified.millisecondsSinceEpoch ~/ 1000).abs();
+        if (diff > 600) {
+          needsDownload = true;
+          reason = 'DATE_MISMATCH_LARGE: diff=${diff}s';
+        }
+      }
+    } else if (r.modified != null) {
+      final diff = (r.modified!.millisecondsSinceEpoch ~/ 1000 - local.modified.millisecondsSinceEpoch ~/ 1000).abs();
+      if (diff > 300) {
+        needsDownload = true;
+        reason = 'DATE_ONLY_MISMATCH: diff=${diff}s';
+      }
+    }
+
+    if (needsDownload) {
+      toDownload.add(r);
+      downloadReasons[r.relativePath] = reason;
+    }
+  }
+
+  return {'toDownload': toDownload, 'toDelete': toDelete, 'downloadReasons': downloadReasons};
+}
+
+class _ScanTaskParams {
+  final String gameRoot;
+  final List<String>? manifestPaths;
+  _ScanTaskParams(this.gameRoot, this.manifestPaths);
+}
+
+List<LocalFileEntry> _listLocalFilesTask(_ScanTaskParams params) {
+  final gameRoot = params.gameRoot;
+  final manifestPaths = params.manifestPaths;
+  final List<LocalFileEntry> res = [];
+
+  if (manifestPaths != null && manifestPaths.isNotEmpty) {
+    for (final relPath in manifestPaths) {
+      try {
+        final f = File('$gameRoot${Platform.pathSeparator}$relPath');
+        if (f.existsSync()) {
+          final s = f.statSync();
+          res.add(LocalFileEntry(relativePath: relPath, size: s.size, modified: s.modified));
+        }
+      } catch (_) {}
+    }
+    return res;
+  }
+
+  try {
+    const List<String> managedRoot = ['doorstop_config.ini', 'winhttp.dll'];
+    for (final rf in managedRoot) {
+      final f = File('$gameRoot${Platform.pathSeparator}$rf');
+      if (f.existsSync()) {
+        final s = f.statSync();
+        res.add(LocalFileEntry(relativePath: rf, size: s.size, modified: s.modified));
+      }
+    }
+
+    final bepDir = Directory('$gameRoot${Platform.pathSeparator}BepInEx');
+    if (bepDir.existsSync()) {
+      final entities = bepDir.listSync(recursive: true, followLinks: false);
+      for (final entity in entities) {
+        if (entity is File) {
+          try {
+            final rel = entity.path.substring(gameRoot.length + 1).replaceAll('\\', '/');
+            final s = entity.statSync();
+            res.add(LocalFileEntry(relativePath: rel, size: s.size, modified: s.modified));
+          } catch (_) {}
+        }
+      }
+    }
+  } catch (_) {}
+  return res;
 }
 
 /// Normalizuje ścieżkę pliku do porównania (np. usuwa prowadzące i końcowe ukośniki).

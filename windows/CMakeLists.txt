@@ -10,6 +10,9 @@ set(BINARY_NAME "valheim_launcher_generator")
 # versions of CMake.
 cmake_policy(VERSION 3.14...3.25)
 
+# Suppress noisy PRE_BUILD/POST_BUILD/dev warnings mostly from plugins
+set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS ON CACHE BOOL "" FORCE)
+
 # Define build configuration option.
 get_property(IS_MULTICONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 if(IS_MULTICONFIG)

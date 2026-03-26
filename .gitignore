@@ -45,3 +45,14 @@ app.*.map.json
 /android/app/release
 
 output/
+
+# Sensitive data - never commit passwords/credentials
+profiles/
+**/ftp_preview.json
+**/config_encrypted.json
+
+# Video backups
+**/background_original_backup.mp4
+
+# Build artifacts (submodules)
+**/build/

@@ -1,5 +1,4 @@
 import 'dart:io' show Platform, File;
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -201,6 +200,18 @@ class _LauncherScreenState extends State<LauncherScreen> {
           ready: null,
         ),
       );
+      // Opcja dla Windows (libmpv)
+      if (Platform.isWindows) {
+        try {
+          // Ustawienia optymalizujące odtwarzanie tła na Windows
+          final p = _player.platform as dynamic;
+          await p.setProperty('hwdec', 'd3d11va'); // Sprzętowa dekodacja obrazu (Direct3D 11)
+          await p.setProperty('vo', 'gpu');        // Wyjście wideo przez GPU
+          await p.setProperty('video-sync', 'display-resample'); // Najpłynniejsza synchronizacja klatek
+          await p.setProperty('framedrop', 'vo');  // Pomiń klatki jeśli GPU nie wyrobi, zamiast zamrażać UI
+          await p.setProperty('gpu-api', 'd3d11'); // Wymuś backend D3D11 dla stabilności
+        } catch (_) {}
+      }
       _videoController = VideoController(_player);
 
       // Video is always muted
@@ -717,12 +728,8 @@ class _LauncherScreenState extends State<LauncherScreen> {
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
-                            ClipRect(
-                              child: BackdropFilter(
-                                filter: ui.ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-                                child: const SizedBox.expand(),
-                              ),
-                            ),
+                            // Wyłączono blur dla lepszej wydajności podczas pobierania
+                            const SizedBox.expand(),
                             Container(color: const Color(0x22FFFFFF)),
                             LinearProgressIndicator(
                               value: state.showProgress ? state.progress : null,
@@ -865,10 +872,12 @@ class _WinterStartButton extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // Frosted glass blur
-                BackdropFilter(
-                  filter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                  child: const SizedBox.expand(),
+                // Semi-transparent dark overlay (replaces BackdropFilter blur
+                // which was extremely expensive — re-rendered every video frame)
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Color(0x99000000),
+                  ),
                 ),
                 // Liquid glass background with soft depth
                 DecoratedBox(

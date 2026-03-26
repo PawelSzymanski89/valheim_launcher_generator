@@ -51,12 +51,6 @@ class FtpDownloader {
 
   FtpDownloader(this.config);
 
-  static Future<FtpConfig> loadFromAsset({String path = 'assets/ftp.json'}) async {
-    final raw = await rootBundle.loadString(path);
-    final Map<String, dynamic> j = json.decode(raw) as Map<String, dynamic>;
-    return FtpConfig.fromJson(j);
-  }
-
   /// Wczytuje konfigurację FTP z pliku na dysku (użyteczne do testów CLI).
   static Future<FtpConfig> loadFromFilePath(String path) async {
     final raw = await File(path).readAsString();

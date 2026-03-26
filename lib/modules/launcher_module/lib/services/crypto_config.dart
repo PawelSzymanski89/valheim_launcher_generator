@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:server_launcher/services/ftp_downloader.dart' show FtpConfig;
 
 // ─── APP SECRET ──────────────────────────────────────────────────────────────
 // Ten sam stały sekret co w generatorze (crypto_service.dart → kAppSecret).
@@ -92,6 +93,17 @@ class DecryptedConfig {
         ftpPort: (j['ftpPort'] as num?)?.toInt() ?? 21,
         ftpUser: j['ftpUser'] as String? ?? '',
         ftpPassword: j['ftpPassword'] as String? ?? '',
+      );
+
+  FtpConfig toFtpConfig() => FtpConfig(
+        host: ftpHost,
+        port: ftpPort,
+        username: ftpUser,
+        password: ftpPassword,
+        launcherRemote: '/launcher_files/launcher.zip',
+        launcherVersionRemote: '/launcher_files/launcher.txt',
+        updaterRemote: '/launcher_files/updater.zip',
+        updaterVersionRemote: '/launcher_files/updater.txt',
       );
 }
 

@@ -1,7 +1,7 @@
 name: server_updater
 description: "Valheim Launcher Updater — autoaktualizator wygenerowany przez Valheim Launcher Generator."
 publish_to: 'none'
-version: 1.0.0+7
+version: 1.0.6+19
 environment:
   sdk: ^3.9.2
 dependencies:
@@ -31,7 +31,7 @@ flutter_launcher_icons:
 flutter:
   uses-material-design: true
   assets:
-    - assets/ftp.json
+    - assets/manifest.sig
     - assets/config_encrypted.json
     - assets/manifest.sig
     - assets/images/logo.png
