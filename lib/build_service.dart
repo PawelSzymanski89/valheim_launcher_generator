@@ -298,7 +298,13 @@ class BuildService {
         );
       }
 
-      // Determine version from template's launcher module pubspec
+      // Increment launcher version BEFORE reading it (so each Generate bumps build num).
+      // All modules share the launcher version for output folder + upload consistency.
+      if (mod.name == 'launcher') {
+        await _incrementVersion(p.join(_modulesRoot, 'launcher_module'));
+      }
+
+      // Determine version from launcher module pubspec (shared version)
       final releaseVersion = _readVersion(p.join(_modulesRoot, 'launcher_module'));
       final outDir = Directory(p.join(_outputRoot, config.serverName, 'v$releaseVersion', mod.outputAs));
 
