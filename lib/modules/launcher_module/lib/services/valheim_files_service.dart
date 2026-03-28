@@ -950,18 +950,16 @@ class ValheimFilesService {
       try {
         // Ustal ścieżkę i dodaj cudzysłów dla ścieżek ze spacjami na Windows
         final String exePath = updaterExe.path;
-        final String quotedExePath = Platform.isWindows ? '"$exePath"' : exePath;
         
-        if (kDebugMode) debugPrint('[LauncherUpdate] Uruchamiam updater (detached): $quotedExePath');
+        if (kDebugMode) debugPrint('[LauncherUpdate] Uruchamiam updater (detached): $exePath');
         onProgress(0.8, I18n.instance.t('launching_updater'));
 
         // Uruchom w trybie detached (updater będzie działał niezależnie)
         await Process.start(
-          quotedExePath,
+          exePath,
           [],
           workingDirectory: updaterExe.parent.path,
           mode: ProcessStartMode.detached,
-          runInShell: true,
         );
 
         if (kDebugMode) debugPrint('[LauncherUpdate] Updater uruchomiony pomyślnie');
