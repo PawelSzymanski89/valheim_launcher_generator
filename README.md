@@ -17,6 +17,8 @@
 
 **Generate a fully configured, encrypted launcher suite for your private Valheim server — in 4 steps.**
 
+**⚠️ Beta** — feedback welcome via [Issues](https://github.com/PawelSzymanski89/valheim_launcher_generator/issues)!
+
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter)](https://flutter.dev)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
@@ -38,11 +40,27 @@ It's a 4-step wizard that lets any private server admin generate a branded, read
 
 | App | Purpose |
 |---|---|
-| `{ServerName} Launcher.exe` | Players launch Valheim with one click — auto-connects to your server |
-| `{ServerName} Patcher.exe` | Admin tool — uploads mod packages to FTP (BepInEx) |
-| `{ServerName} Updater.exe` | Checks for launcher updates and downloads them from FTP |
+| `{ServerName} Launcher.exe` | Players launch Valheim with one click — auto-syncs mods and connects to your server |
+| `{ServerName} Patcher.exe` | Admin tool — run on your PC to scan the server's mods via FTP and create a manifest |
+| `{ServerName} Updater.exe` | Checks for launcher/updater updates and downloads them from FTP |
 
 All three are standalone, portable Windows executables. No installation needed.
+
+### How It Works
+
+1. **Generator** — Download the generator, enter your server details (IP, password, FTP), add your logo and background, click **Generate** — you get 3 ready-made `.exe` files
+2. **Patcher** — On your PC, run the Patcher which connects to your server via FTP, scans installed mods (BepInEx), and creates a manifest of all mod files
+3. **Players** — Get a single EXE. They launch it and the launcher automatically:
+   - 📋 Compares local mods with the server's manifest
+   - ⬇️ Downloads missing mods and updates outdated ones
+   - 🗑️ Removes mods the server no longer uses
+   - ▶️ Launches the game with one click
+
+### Requirements
+
+- Modded Valheim server (BepInEx)
+- FTP server mirroring the server's mod folder structure **or** root FTP access to the game server itself
+- Windows 10/11
 
 ### 🖼️ Wizard Steps — Screenshots
 
@@ -95,13 +113,18 @@ vaheim_launcher_generator/
     └── crypto_service_test.dart  # 10 unit tests ✅
 ```
 
-### Getting Started
+### Getting Started (End Users)
+
+Download the latest release from [GitHub Releases](https://github.com/PawelSzymanski89/valheim_launcher_generator/releases) — no SDK or dev tools needed.
+
+### Building from Source (Developers)
 
 ```powershell
 git clone https://github.com/PawelSzymanski89/valheim_launcher_generator.git
 cd valheim_launcher_generator
-flutter pub get
-flutter run -d windows
+# .env with APP_SECRET is auto-generated on first template build
+powershell -ExecutionPolicy Bypass -File scripts/build_templates.ps1
+powershell -ExecutionPolicy Bypass -File scripts/package_generator.ps1
 ```
 
 ### ⚠️ Disclaimer & Hobby Project Notice
@@ -147,6 +170,8 @@ Need a custom-branded launcher suite for your server or community?
 
 **Stwórz własny, zaszyfrowany zestaw aplikacji dla swojego prywatnego serwera Valheim — w 4 krokach.**
 
+**⚠️ Beta** — uwagi i zgłoszenia błędów mile widziane przez [Issues](https://github.com/PawelSzymanski89/valheim_launcher_generator/issues)!
+
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter)](https://flutter.dev)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
@@ -168,11 +193,27 @@ Działa jako kreator (wizard) w 4 krokach, który pozwala administratorowi prywa
 
 | Aplikacja | Przeznaczenie |
 |---|---|
-| `{NazwaSerwera} Launcher.exe` | Gracze uruchamiają Valheim jednym kliknięciem — automatyczne połączenie z serwerem |
-| `{NazwaSerwera} Patcher.exe` | Narzędzie admina — wysyłanie paczek modów na FTP (BepInEx) |
-| `{NazwaSerwera} Updater.exe` | Sprawdza dostępność nowej wersji launchera i pobiera ją automatycznie |
+| `{NazwaSerwera} Launcher.exe` | Gracze uruchamiają Valheim jednym kliknięciem — automatyczna synchronizacja modów i połączenie z serwerem |
+| `{NazwaSerwera} Patcher.exe` | Narzędzie admina — uruchamiasz na swoim komputerze, skanuje mody serwera przez FTP i tworzy manifest |
+| `{NazwaSerwera} Updater.exe` | Sprawdza dostępność nowej wersji launchera/updatera i pobiera automatycznie |
 
 Wszystkie trzy są przenośnymi plikami `.exe` — nie wymagają instalacji.
+
+### Jak to działa?
+
+1. **Generator** — pobierasz generator, wpisujesz dane serwera (IP, hasło, FTP), wrzucasz logo i tło, klikasz **Generuj** — dostajesz 3 gotowe pliki `.exe`
+2. **Patcher** — na swoim komputerze uruchamiasz Patcher, który łączy się z serwerem przez FTP, skanuje zainstalowane mody (BepInEx) i tworzy manifest wszystkich plików
+3. **Gracze** — dostają jednego EXE. Uruchamiają i launcher automatycznie:
+   - 📋 Porównuje lokalne mody z manifestem serwera
+   - ⬇️ Pobiera brakujące i aktualizuje nieaktualne
+   - 🗑️ Usuwa mody których serwer już nie używa
+   - ▶️ Odpala grę jednym kliknięciem
+
+### Wymagania
+
+- Zmodowany serwer Valheim (BepInEx)
+- Serwer FTP z odwzorowaną strukturą katalogów serwera **lub** bezpośredni dostęp FTP do katalogu głównego serwera
+- Windows 10/11
 
 ### 🖼️ Kroki kreatora — Zrzuty ekranu
 
@@ -225,13 +266,18 @@ vaheim_launcher_generator/
     └── crypto_service_test.dart  # 10 testów jednostkowych ✅
 ```
 
-### Uruchomienie
+### Uruchomienie (Użytkownicy)
+
+Pobierz najnowszą wersję z [GitHub Releases](https://github.com/PawelSzymanski89/valheim_launcher_generator/releases) — nie potrzebujesz SDK ani narzędzi developerskich.
+
+### Budowanie ze źródeł (Developerzy)
 
 ```powershell
 git clone https://github.com/PawelSzymanski89/valheim_launcher_generator.git
 cd valheim_launcher_generator
-flutter pub get
-flutter run -d windows
+# .env z APP_SECRET generuje się automatycznie przy pierwszym buildzie
+powershell -ExecutionPolicy Bypass -File scripts/build_templates.ps1
+powershell -ExecutionPolicy Bypass -File scripts/package_generator.ps1
 ```
 
 ### ⚠️ Zastrzeżenie — Projekt hobbystyczny
