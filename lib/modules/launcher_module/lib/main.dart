@@ -132,20 +132,31 @@ class _LauncherScreenState extends State<LauncherScreen> {
               style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.5),
             ),
             const Divider(height: 32, color: Colors.white12),
-            const Center(
+            Center(
               child: Column(
                 children: [
-                   Text(
+                   const Text(
                     'Created with Valheim Launcher Generator',
                     style: TextStyle(color: Colors.white38, fontSize: 11, fontFamily: 'Norse'),
                   ),
-                  Text(
-                    'https://github.com/PawelSzymanski89/valheim_launcher_generator',
-                    style: TextStyle(color: Colors.white30, fontSize: 10),
+                  GestureDetector(
+                    onTap: () async {
+                      final uri = Uri.parse('https://github.com/PawelSzymanski89/valheim_launcher_generator');
+                      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+                        debugPrint('Could not launch $uri');
+                      }
+                    },
+                    child: const MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: Text(
+                        'github.com/PawelSzymanski89/valheim_launcher_generator',
+                        style: TextStyle(color: Color(0xFF64B5F6), fontSize: 10, decoration: TextDecoration.underline),
+                      ),
+                    ),
                   ),
-                  SizedBox(height: 8),
-                  Text(
-                    '© 2026 Aurora Borealis Launcher System',
+                  const SizedBox(height: 8),
+                  const Text(
+                    '© 2026 Paweł Szymański (cygan)',
                     style: TextStyle(color: Colors.white30, fontSize: 11),
                   ),
                 ],
@@ -427,21 +438,12 @@ class _LauncherScreenState extends State<LauncherScreen> {
                       ),
                     ),
 
-                    // Info button for legal disclaimer
-                    Positioned(
-                      top: 4,
-                      right: 110, // Left of minimize/close buttons
-                      child: _WindowButton(
-                        tooltip: I18n.instance.t('information_label'),
-                        icon: Icons.info_outline,
-                        onPressed: () => _showAboutDialog(context),
-                      ),
-                    ),
-
                     // Custom title bar with window controls (frameless)
                     Align(
                       alignment: Alignment.topCenter,
-                      child: _CustomTitleBar(),
+                      child: _CustomTitleBar(
+                        onInfoPressed: () => _showAboutDialog(context),
+                      ),
                     ),
 
                     // Title group positioned ~10% from the top
@@ -753,6 +755,9 @@ class _LauncherScreenState extends State<LauncherScreen> {
 }
 
 class _CustomTitleBar extends StatelessWidget {
+  final VoidCallback? onInfoPressed;
+  const _CustomTitleBar({this.onInfoPressed});
+
   @override
   Widget build(BuildContext context) {
     final isDesktop = !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
@@ -777,10 +782,15 @@ class _CustomTitleBar extends StatelessWidget {
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onPanStart: isDesktop ? (_) => windowManager.startDragging() : null,
-              // Disable maximize on double-click to keep window size locked
               onDoubleTap: null,
               child: const SizedBox.expand(),
             ),
+          ),
+          // Info button
+          _WindowButton(
+            tooltip: I18n.instance.t('information_label'),
+            icon: Icons.info_outline,
+            onPressed: onInfoPressed,
           ),
           // Minimize button
           _WindowButton(
