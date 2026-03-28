@@ -53,15 +53,6 @@ class GeneratorConfig {
       'ftpPassword': ftpPassword,
     });
     return CryptoService.encrypt(plain, salt);
-  }
-
-  /// Zwraca niezaszyfrowany ftp.json (dla zgodności z istniejącym kodem)
-  Map<String, dynamic> toFtpJson() => {
-    'host': ftpHost,
-    'port': ftpPort,
-    'user': ftpUser,
-    'password': ftpPassword, // zostanie zastąpione przez encrypted przy budowaniu
-  };
 }
 
 /// Provider stanu wizarda.
