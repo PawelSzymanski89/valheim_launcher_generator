@@ -53,6 +53,7 @@ class GeneratorConfig {
       'ftpPassword': ftpPassword,
     });
     return CryptoService.encrypt(plain, salt);
+  }
 }
 
 /// Provider stanu wizarda.
