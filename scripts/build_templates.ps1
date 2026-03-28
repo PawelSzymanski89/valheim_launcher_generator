@@ -25,6 +25,30 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "  OK" -ForegroundColor Green
 
+# ─── APP_SECRET from .env ───────────────────────────────────────────────────
+$EnvFile = Join-Path $ProjectRoot '.env'
+if (Test-Path $EnvFile) {
+    $envContent = Get-Content $EnvFile -Raw
+    $match = [regex]::Match($envContent, 'APP_SECRET=(.+)')
+    if ($match.Success) {
+        $AppSecret = $match.Groups[1].Value.Trim()
+        Write-Host "APP_SECRET loaded from .env" -ForegroundColor Green
+    } else {
+        Write-Host ".env exists but APP_SECRET not found!" -ForegroundColor Red
+        exit 1
+    }
+} else {
+    # Auto-generate a cryptographically random secret
+    $bytes = New-Object byte[] 32
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    $AppSecret = [Convert]::ToBase64String($bytes) -replace '[+/=]', 'x'
+    $AppSecret = $AppSecret.Substring(0, [Math]::Min(40, $AppSecret.Length))
+    "APP_SECRET=$AppSecret" | Set-Content $EnvFile -Encoding UTF8
+    Write-Host "Generated new APP_SECRET and saved to .env" -ForegroundColor Yellow
+    Write-Host "  IMPORTANT: Back up .env if you want to rebuild on another machine!" -ForegroundColor Yellow
+}
+Write-Host ""
+
 # Module definitions
 $modules = @(
     @{ Name = 'launcher'; Dir = 'launcher_module'; Exe = 'server_launcher'; Alias = 'l' },
@@ -87,9 +111,9 @@ foreach ($mod in $modules) {
     flutter pub get
     Pop-Location
 
-    Write-Host "  flutter build windows --release..." -ForegroundColor Yellow
+    Write-Host "  flutter build windows --release --dart-define=APP_SECRET=***..." -ForegroundColor Yellow
     Push-Location $buildDir
-    flutter build windows --release
+    flutter build windows --release --dart-define="APP_SECRET=$AppSecret"
     $buildExit = $LASTEXITCODE
     Pop-Location
 

@@ -3,8 +3,8 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
-// Ten sam APP_SECRET co w generatorze (crypto_service.dart → kAppSecret).
-const _kAppSecret = r'Vl4h31m@Schr0n#2024!Xd9zQmPwK';
+// APP_SECRET injected at compile time via --dart-define=APP_SECRET=...
+const _kAppSecret = String.fromEnvironment('APP_SECRET');
 
 Uint8List _keyStream(String salt, int length) {
   final saltBytes = utf8.encode(salt);

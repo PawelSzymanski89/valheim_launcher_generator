@@ -63,3 +63,6 @@ tools/
 
 # Pre-compiled templates (built once via scripts/build_templates.ps1)
 templates/
+
+# Secret key (auto-generated on first build, never commit!)
+.env

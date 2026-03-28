@@ -25,9 +25,24 @@ $OutputZip = Join-Path $ProjectRoot "ValheimLauncherGenerator_v$version.zip"
 
 # 1. Build
 if (-not $SkipBuild) {
+    # Read APP_SECRET from .env
+    $EnvFile = Join-Path $ProjectRoot '.env'
+    if (-not (Test-Path $EnvFile)) {
+        Write-Host ".env not found! Run build_templates.ps1 first to generate it." -ForegroundColor Red
+        exit 1
+    }
+    $envContent = Get-Content $EnvFile -Raw
+    $match = [regex]::Match($envContent, 'APP_SECRET=(.+)')
+    if (-not $match.Success) {
+        Write-Host ".env exists but APP_SECRET not found!" -ForegroundColor Red
+        exit 1
+    }
+    $AppSecret = $match.Groups[1].Value.Trim()
+    Write-Host "APP_SECRET loaded from .env" -ForegroundColor Green
+
     Write-Host "Building generator (flutter build windows)..." -ForegroundColor Yellow
     Push-Location $ProjectRoot
-    flutter build windows --release
+    flutter build windows --release --dart-define="APP_SECRET=$AppSecret"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Build failed!" -ForegroundColor Red
         Pop-Location

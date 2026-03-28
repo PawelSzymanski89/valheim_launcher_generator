@@ -3,11 +3,10 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 
-/// Stały sekret aplikacji — skompilowany w binarce generatora i modułów.
-/// Sól w pliku config_salt.txt jest zaszyfrowana tym kluczem.
-/// Zmiana tego stałego → wszystkie wygenerowane launchery przestaną działać
-/// (trzeba regenerować wszystkie buildy).
-const kAppSecret = r'Vl4h31m@Schr0n#2024!Xd9zQmPwK';
+/// App secret injected at compile time via --dart-define=APP_SECRET=...
+/// Never hardcode this value — it lives in .env (gitignored).
+/// If empty, encryption/decryption will fail loudly at runtime.
+const kAppSecret = String.fromEnvironment('APP_SECRET');
 
 /// Szyfrowanie XOR-stream z kluczem derywowanym PBKDF2-SHA256.
 /// Wystarczające dla konfiguracji offline — nie wymaga pointycastle.

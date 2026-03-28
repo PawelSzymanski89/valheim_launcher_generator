@@ -5,10 +5,9 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:server_launcher/services/ftp_downloader.dart' show FtpConfig;
 
 // ─── APP SECRET ──────────────────────────────────────────────────────────────
-// Ten sam stały sekret co w generatorze (crypto_service.dart → kAppSecret).
-// Skompilowany w binarce — do odszyfrowania manifest.sig potrzeba tej binarki.
-// Zmiana → trzeba regenerować wszystkie launchery.
-const _kAppSecret = r'Vl4h31m@Schr0n#2024!Xd9zQmPwK';
+// Injected at compile time via --dart-define=APP_SECRET=...
+// Never hardcode — lives in .env (gitignored). Baked into binary at build.
+const _kAppSecret = String.fromEnvironment('APP_SECRET');
 // ─────────────────────────────────────────────────────────────────────────────
 
 Uint8List _keyStream(String salt, int length) {
