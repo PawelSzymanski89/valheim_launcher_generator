@@ -826,16 +826,24 @@ class LauncherCubit extends Cubit<LauncherState> {
       // Krok 2: Po aktualizacji updatera sprawdź wersję launchera
       _emitStatus('checking_updates', isBusy: true, showProgress: true, progress: 0.0, progressFileName: 'launcher');
 
-      // Pobierz aktualną wersję z PackageInfo
+      // Pobierz aktualną wersję z version.txt (wstrzykniętego przez generator)
+      // Fallback do PackageInfo gdy version.txt nie istnieje (legacy/debug mode)
       String currentVersion = '0.0.0+0'; // domyślna wartość
       try {
-        final packageInfo = await PackageInfo.fromPlatform();
-        currentVersion = '${packageInfo.version}+${packageInfo.buildNumber}';
-        if (kDebugMode) debugPrint(
-            '[LauncherCubit] Aktualna wersja launchera: $currentVersion');
+        final resolved = Platform.resolvedExecutable;
+        final exeDir = File(resolved).parent.path;
+        final versionFile = File('$exeDir${Platform.pathSeparator}data${Platform.pathSeparator}flutter_assets${Platform.pathSeparator}assets${Platform.pathSeparator}version.txt');
+        if (await versionFile.exists()) {
+          currentVersion = (await versionFile.readAsString()).trim();
+          if (kDebugMode) debugPrint('[LauncherCubit] Wersja z version.txt: $currentVersion');
+        } else {
+          // Fallback: PackageInfo (baked into binary)
+          final packageInfo = await PackageInfo.fromPlatform();
+          currentVersion = '${packageInfo.version}+${packageInfo.buildNumber}';
+          if (kDebugMode) debugPrint('[LauncherCubit] Wersja z PackageInfo (fallback): $currentVersion');
+        }
       } catch (e) {
-        if (kDebugMode) debugPrint(
-            '[LauncherCubit] Błąd odczytu PackageInfo: $e');
+        if (kDebugMode) debugPrint('[LauncherCubit] Błąd odczytu wersji: $e');
       }
 
       final shouldExit = await filesService.checkAndRunLauncherUpdate(

@@ -333,6 +333,11 @@ class BuildService {
       await File(p.join(assetsPath, 'manifest.sig'))
           .writeAsString(encryptedSalt);
 
+      // 4b. Inject version.txt (so launcher knows its own version at runtime)
+      onLog('  📌 Wstrzykuję version.txt → $releaseVersion');
+      await File(p.join(assetsPath, 'version.txt'))
+          .writeAsString(releaseVersion);
+
       // 5. Inject background video (launcher only)
       if (mod.name == 'launcher' && config.backgroundPath.isNotEmpty) {
         final bgSrc = File(config.backgroundPath);
