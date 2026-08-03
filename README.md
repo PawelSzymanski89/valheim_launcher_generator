@@ -31,6 +31,13 @@
 <br>
 
 ### What is this?
+> **Looking for macOS or Linux?** This generator builds Windows launchers only. The
+> [valheim_launcher_proxmox](https://github.com/PawelSzymanski89/valheim_launcher_proxmox)
+> fork drops the wizard and the FTP account entirely: a server panel hands each player a
+> ready launcher for **Windows, macOS or Linux**, with the server's mods working on all
+> three.
+
+
 
 **Valheim Launcher Generator** is a Windows desktop application built with Flutter.  
 It's a 4-step wizard that lets any private server admin generate a branded, ready-to-distribute set of **3 standalone executables** — configured and encrypted specifically for their server.
